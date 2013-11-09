@@ -65,6 +65,8 @@ class test_XXX_Test_Group_Name(unittest.TestCase):
         self.assertEqual(dfile.checksum, dfile2.checksum)
         self.assertEqual(dfile.symlink, dfile2.symlink)
         self.assertEqual(dfile.hardlink, dfile2.hardlink)
+        self.assertEqual(dfile.major_number, dfile2.major_number)
+        self.assertEqual(dfile.minor_number, dfile2.minor_number)
 
         #  Examples:
         # self.assertEqual(fp.readline(), 'This is a test')

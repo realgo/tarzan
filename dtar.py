@@ -98,6 +98,8 @@ class DtarFile:
         self.mtime = fst.st_mtime
         self.symlink = ''
         self.hardlink = ''
+        self.major_number = ''
+        self.minor_number = ''
 
         if stat.S_ISDIR(fst.st_mode):
             self.file_type = 'd'
@@ -120,9 +122,10 @@ class DtarFile:
             self.checksum = hash.hexdigest()
 
     def format_header(self):
-        s = '%s\0%o\0%d\0%s\0%d\0%s\0%d\0%s\0%s\0%s\0%s\0' % (
+        s = '%s\0%o\0%d\0%s\0%d\0%s\0%d\0%s\0%s\0%s\0%s\0%s\0%s\0' % (
             self.file_type, self.mode, self.uid, self.user_name,
             self.gid, self.group_name, self.mtime, self.checksum,
+            self.major_number, self.minor_number,
             self.filename, self.symlink, self.hardlink)
         s = 'dtf1%s\0%s' % (struct.pack('!L', len(s)), s)
         return s
@@ -143,9 +146,11 @@ class DtarFile:
         self.group_name = fields[5]
         self.mtime = int(fields[6])
         self.checksum = fields[7]
-        self.filename = fields[8]
-        self.symlink = fields[9]
-        self.hardlink = fields[10]
+        self.major_number = fields[8]
+        self.minor_number = fields[9]
+        self.filename = fields[10]
+        self.symlink = fields[11]
+        self.hardlink = fields[12]
 
         if self.symlink != '':
             raise NotImplementedError('Symlinks are not yet supported')
