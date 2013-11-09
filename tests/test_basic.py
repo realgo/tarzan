@@ -13,6 +13,7 @@ import os
 import sys
 sys.path.append('..')
 import dtar
+from StringIO import StringIO
 
 
 class test_XXX_Test_Group_Name(unittest.TestCase):
@@ -37,6 +38,33 @@ class test_XXX_Test_Group_Name(unittest.TestCase):
                 (1679617, ('1', '001')), ]:
             self.assertEqual(
                 dtar._make_seq_filename(file_id), os.path.join(*results))
+
+    def test_GetUID(self):
+        self.assertEqual(dtar.get_username(0), 'root')
+        self.assertEqual(dtar.get_username(30123), '')
+        self.assertEqual(dtar.get_groupname(0), 'root')
+        self.assertEqual(dtar.get_groupname(30123), '')
+
+    def test_DtarFile(self):
+        dfile = dtar.DtarFile()
+        dfile.from_file('/etc/services')
+
+        header_str = dfile.format_header()
+        header_file = StringIO(header_str)
+
+        dfile2 = dtar.DtarFile()
+        dfile2.read_header(header_file)
+        self.assertEqual(dfile.filename, dfile2.filename)
+        self.assertEqual(dfile.file_type, dfile2.file_type)
+        self.assertEqual(dfile.mode, dfile2.mode)
+        self.assertEqual(dfile.uid, dfile2.uid)
+        self.assertEqual(dfile.user_name, dfile2.user_name)
+        self.assertEqual(dfile.gid, dfile2.gid)
+        self.assertEqual(dfile.group_name, dfile2.group_name)
+        self.assertEqual(dfile.mtime, dfile2.mtime)
+        self.assertEqual(dfile.checksum, dfile2.checksum)
+        self.assertEqual(dfile.symlink, dfile2.symlink)
+        self.assertEqual(dfile.hardlink, dfile2.hardlink)
 
         #  Examples:
         # self.assertEqual(fp.readline(), 'This is a test')
