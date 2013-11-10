@@ -4,8 +4,27 @@ import sys
 import struct
 import tarfp
 from Crypto.Hash import SHA256
+from Crypto.Cipher import AES
+from Crypto import Random
+import zlib
 
-blocks_size = 1024
+blocks_size = 10240
+password = 'TEST_PASSWORD'
+
+
+def encode_block(block, hash_key):
+    block_magic = 'dt1n'
+    compressed_block = zlib.compress(block)
+    if len(compressed_block) < len(block):
+        block = compressed_block
+        block_magic = 'dt1z'
+
+    crypto_iv = Random.new().read(32)
+    crypto = AES.new(password, AES.MODE_CBC, crypto_iv)
+    block = crypto.encrypt(block)
+
+    header = (block_magic + struct.pack('!L', len(block)) + hash_key)
+    return header, crypto_iv + block
 
 
 class FileWithTarAttrs:
@@ -58,7 +77,6 @@ while True:
 
     #  write padding
     if output_leftover > 0:
-        sys.stderr.write('   Padding: %s %s %s\n' % ((tarfp.BLOCKSIZE - output_leftover), blocks, input_leftover))
         output_file.write('\0' * (tarfp.BLOCKSIZE - output_leftover))
 
     #  read trailing padding
