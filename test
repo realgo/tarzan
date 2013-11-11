@@ -4,27 +4,11 @@ import sys
 import struct
 import tarfp
 from Crypto.Hash import SHA256
-from Crypto.Cipher import AES
-from Crypto import Random
-import zlib
+import dtar
 
 blocks_size = 10240
+blocks_file_size_max = 100000000
 password = 'TEST_PASSWORD'
-
-
-def encode_block(block, hash_key):
-    block_magic = 'dt1n'
-    compressed_block = zlib.compress(block)
-    if len(compressed_block) < len(block):
-        block = compressed_block
-        block_magic = 'dt1z'
-
-    crypto_iv = Random.new().read(32)
-    crypto = AES.new(password, AES.MODE_CBC, crypto_iv)
-    block = crypto.encrypt(block)
-
-    header = (block_magic + struct.pack('!L', len(block)) + hash_key)
-    return header, crypto_iv + block
 
 
 class FileWithTarAttrs:
@@ -36,6 +20,9 @@ class FileWithTarAttrs:
         self.errors = None
 input_file = FileWithTarAttrs(sys.stdin)
 output_file = sys.stdout
+#block_storage = dtar.BlockStorage('/tmp/test.bs', password)
+block_storage = dtar.BlockStorage('/dev/shm/test.bs', password)
+have_brick = False
 
 while True:
     try:
@@ -64,12 +51,18 @@ while True:
         data = input_file.read(min(blocks_size, to_read))
         to_read -= len(data)
 
-        hash = SHA256.new()
-        hash.update(data)
+        hashkey = dtar.gen_hashkey(data)
+        if hashkey not in block_storage.blocks_map:
+            if not have_brick or (
+                    block_storage.blocks_file_size
+                    and block_storage.blocks_file_size > blocks_file_size_max):
+                block_storage.new_brick()
+                have_brick = True
+            block_storage.store_block(data)
+
         file_hash.update(data)
 
-        hash_key = hash.digest() + struct.pack('!L', len(data))
-        output_file.write(hash_key)
+        output_file.write(hashkey)
 
     #  whole file hash
     hash_key = file_hash.digest() + struct.pack('!L', 0)
@@ -85,6 +78,9 @@ while True:
         if padding != '\0' * len(padding):
             raise ValueError(
                 'Expecting NULs, got "%s"' % repr(padding[:32]))
+
+if have_brick:
+    block_storage.close_brick()
 
 #while True:
 #   s = sys.stdin.read(tarfile.BLOCKSIZE)

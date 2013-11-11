@@ -13,7 +13,6 @@ import os
 import sys
 sys.path.append('..')
 import dtar
-from StringIO import StringIO
 
 
 class test_XXX_Test_Group_Name(unittest.TestCase):
@@ -45,40 +44,28 @@ class test_XXX_Test_Group_Name(unittest.TestCase):
         self.assertEqual(dtar.get_groupname(0), 'root')
         self.assertEqual(dtar.get_groupname(30123), '')
 
-    def test_DtarFile(self):
-        dfile = dtar.DtarFile()
-        dfile.from_file('/etc/services')
+    def test_BlockStorage(self):
+        testdir = '/tmp/testblockstorage'
+        os.system('rm -rf "%s"' % testdir)
 
-        header_str = dfile.format_header()
-        header_file = StringIO(header_str)
+        bs = dtar.BlockStorage(testdir, 'TEST_PASSWORD')
+        self.assertTrue(os.path.exists(os.path.join(testdir, 'info')))
+        self.assertEqual(bs.next_brick, 0)
 
-        dfile2 = dtar.DtarFile()
-        dfile2.read_header(header_file)
-        self.assertEqual(dfile.filename, dfile2.filename)
-        self.assertEqual(dfile.file_type, dfile2.file_type)
-        self.assertEqual(dfile.mode, dfile2.mode)
-        self.assertEqual(dfile.uid, dfile2.uid)
-        self.assertEqual(dfile.user_name, dfile2.user_name)
-        self.assertEqual(dfile.gid, dfile2.gid)
-        self.assertEqual(dfile.group_name, dfile2.group_name)
-        self.assertEqual(dfile.mtime, dfile2.mtime)
-        self.assertEqual(dfile.checksum, dfile2.checksum)
-        self.assertEqual(dfile.symlink, dfile2.symlink)
-        self.assertEqual(dfile.hardlink, dfile2.hardlink)
-        self.assertEqual(dfile.major_number, dfile2.major_number)
-        self.assertEqual(dfile.minor_number, dfile2.minor_number)
+        bs.new_brick()
+        size_1 = bs.blocks_file_size
+        bs.store_block('foo')
+        size_2 = bs.blocks_file_size
+        self.assertNotEqual(size_1, size_2)
+        bs.store_block('bar')
+        size_3 = bs.blocks_file_size
+        self.assertNotEqual(size_2, size_3)
+        bs.store_block('foo')
+        size_4 = bs.blocks_file_size
+        self.assertEqual(size_3, size_4)
+        bs.close_brick()
 
-        #  Examples:
-        # self.assertEqual(fp.readline(), 'This is a test')
-        # self.assertFalse(os.path.exists('a'))
-        # self.assertTrue(os.path.exists('a'))
-        # self.assertTrue('already a backup server' in c.stderr)
-        # self.assertIn('fun', 'disfunctional')
-        # self.assertNotIn('crazy', 'disfunctional')
-        # with self.assertRaises(Exception):
-        #	raise Exception('test')
-        #
-        # Unconditionally fail, for example in a try block that should raise
-        # self.fail('Exception was not raised')
+        bs2 = dtar.BlockStorage(testdir, 'TEST_PASSWORD')
+        self.assertEqual(bs2.next_brick, 1)
 
 unittest.main()
