@@ -6,6 +6,7 @@
 #  Date: Sun Nov 10, 2013
 
 import os
+import sys
 from Crypto import Random
 from Crypto.Hash import SHA256
 from Crypto.Cipher import AES
@@ -14,6 +15,11 @@ import struct
 import zlib
 import json
 import bsddb
+
+import tarfp
+
+default_blocks_size = 10240
+default_blocks_file_size_max = 30 * 1000 * 1000
 
 
 def make_seq_filename(sequence_id):
@@ -146,6 +152,10 @@ class BlockStorage:
             filename = os.path.join(self.path, 'blocks_map')
             self.blocks_map = bsddb.hashopen(filename, 'c')
 
+    def have_active_brick(self):
+        '''Do we have an active brick?'''
+        return self.blocks_file is not None
+
     def new_brick(self):
         self.close_brick()
 
@@ -191,6 +201,71 @@ class BlockStorage:
         self.blocks_file_size += len(header)
         self.blocks_file.write(payload)
         self.blocks_file_size += len(payload)
+
+
+def filter_tar(
+        input_file, output_file, block_storage_path, password,
+        blocks_size=default_blocks_size,
+        blocks_file_size_max=default_blocks_file_size_max):
+    block_storage = BlockStorage(block_storage_path, password)
+
+    while True:
+        try:
+            ti = tarfp.TarInfo().fromfileobj(input_file)
+        except tarfp.EOFHeaderError:
+            break
+
+        sys.stderr.write('%s size=%d\n' % (repr(ti), ti.size))
+
+        if ti.size == 0:
+            output_file.write(ti.tobuf())
+            continue
+
+        to_read = ti.size
+        input_leftover = ti.size % tarfp.BLOCKSIZE
+        blocks, block_leftover = divmod(ti.size, blocks_size)
+        blocks += 1
+        if block_leftover > 0:
+            blocks += 1
+        ti.size = 36 * blocks
+        output_leftover = ti.size % tarfp.BLOCKSIZE
+
+        output_file.write(ti.tobuf())
+        file_hash = SHA256.new()
+        while to_read:
+            data = input_file.read(min(blocks_size, to_read))
+            to_read -= len(data)
+
+            hashkey = gen_hashkey(data)
+            if hashkey not in block_storage.blocks_map:
+                if not block_storage.have_active_brick() or (
+                        block_storage.blocks_file_size
+                        and block_storage.blocks_file_size
+                        > blocks_file_size_max):
+                    block_storage.new_brick()
+                block_storage.store_block(data)
+
+            file_hash.update(data)
+
+            output_file.write(hashkey)
+
+        #  whole file hash
+        hash_key = file_hash.digest() + struct.pack('!L', 0)
+        output_file.write(hash_key)
+
+        #  write padding
+        if output_leftover > 0:
+            output_file.write('\0' * (tarfp.BLOCKSIZE - output_leftover))
+
+        #  read trailing padding
+        if input_leftover > 0:
+            padding = input_file.read(tarfp.BLOCKSIZE - input_leftover)
+            if padding != '\0' * len(padding):
+                raise ValueError(
+                    'Expecting NULs, got "%s"' % repr(padding[:32]))
+
+    if block_storage.have_active_brick():
+        block_storage.close_brick()
 
 
 #  kept for reference for uuid and header information in the near term.
