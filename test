@@ -11,14 +11,7 @@ blocks_file_size_max = 100000000
 password = 'TEST_PASSWORD'
 
 
-class FileWithTarAttrs:
-    def __init__(self, fp):
-        self.fp = fp
-        self.read = fp.read
-        self.pax_headers = {}
-        self.encoding = sys.getfilesystemencoding()
-        self.errors = None
-input_file = FileWithTarAttrs(sys.stdin)
+input_file = sys.stdin
 output_file = sys.stdout
 #block_storage = dtar.BlockStorage('/tmp/test.bs', password)
 block_storage = dtar.BlockStorage('/dev/shm/test.bs', password)

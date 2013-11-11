@@ -940,6 +940,9 @@ class TarInfo(object):
 
         self.pax_headers = {}   # pax header information
 
+        self.errors = None
+        self.encoding = sys.getfilesystemencoding()
+
     # In pax headers the "name" and "linkname" field are called
     # "path" and "linkpath".
     def _getpath(self):
@@ -1280,7 +1283,7 @@ class TarInfo(object):
         """
         # Patch the TarInfo object with saved global
         # header information.
-        self._apply_pax_info(fileobj.pax_headers, fileobj.encoding, fileobj.errors)
+        self._apply_pax_info(self.pax_headers, self.encoding, self.errors)
 
         return self
 
@@ -1371,7 +1374,7 @@ class TarInfo(object):
         # the following file (extended) or all following files
         # (global).
         if self.type == XGLTYPE:
-            pax_headers = fileobj.pax_headers
+            pax_headers = self.pax_headers
         else:
             pax_headers = tarfile.pax_headers.copy()
 
@@ -1404,7 +1407,7 @@ class TarInfo(object):
 
         if self.type in (XHDTYPE, SOLARIS_XHDTYPE):
             # Patch the TarInfo object with the extended header info.
-            next._apply_pax_info(pax_headers, tarfile.encoding, tarfile.errors)
+            next._apply_pax_info(pax_headers, self.encoding, self.errors)
             next.offset = self.offset
 
             if "size" in pax_headers:
