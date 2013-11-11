@@ -1,0 +1,4 @@
+Encrypt output file.
+Header for output file.
+Modify headers of block and TOC files to include sequence ID (and UUID?)
+Modify block storage to have UUID?
