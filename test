@@ -7,21 +7,3 @@ password = 'TEST_PASSWORD'
 
 
 dtar.filter_tar(sys.stdin, sys.stdout, '/dev/shm/test.bs', password)
-
-#while True:
-#   s = sys.stdin.read(tarfile.BLOCKSIZE)
-#   obj = tarfile.TarInfo().frombuf(s)
-#   print obj
-#   print obj.path, obj.size
-#   sys.stdin.read(obj.size / tarfile.BLOCKSIZE)
-
-#import dtar
-#
-#os.system('rm -rf /tmp/dtartest')
-#dt = dtar.Dtar('/tmp/dtartest')
-#dt.create()
-#idx = dt.index('Testing')
-#f = dtar.DtarFile()
-#f.from_file('/etc/services')
-#print repr(f.format_header())
-#print len(f.format_header())
