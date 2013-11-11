@@ -6,4 +6,5 @@ import dtar
 password = 'TEST_PASSWORD'
 
 
-dtar.filter_tar(sys.stdin, sys.stdout, '/dev/shm/test.bs', password)
+dtar.filter_tar(sys.stdin, sys.stdout, '/dev/shm/test.bs', password,
+                verbose=True)
