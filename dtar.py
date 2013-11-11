@@ -11,6 +11,26 @@ import json
 import bsddb
 
 
+def make_seq_filename(sequence_id):
+    keyspace = '0123456789abcdefghijklmnopqrstuvwxyz'
+    top_level_count = len(keyspace) ** 2
+
+    def get_key(keyspace, n):
+        nl = len(keyspace)
+        first_loop = True
+        s = ''
+        while n or first_loop:
+            s = keyspace[n % nl] + s
+            n = int(n / nl)
+            first_loop = False
+        return s
+
+    top_level_name = get_key(keyspace, sequence_id % top_level_count)
+    filename = get_key(keyspace, int(sequence_id / top_level_count))
+
+    return os.path.join(top_level_name, filename)
+
+
 def gen_hashkey(block):
     '''Generate the hashkey for the specified block.
     A hashkey is the unique identifier for a block.  It consists of the
@@ -120,7 +140,7 @@ class BlockStorage:
         self.next_brick += 1
         self.save()
 
-        brick_info = os.path.split(_make_seq_filename(self.current_brick))
+        brick_info = os.path.split(make_seq_filename(self.current_brick))
 
         brick_directory = os.path.join(self.path, 'b-' + brick_info[0])
         if not os.path.exists(brick_directory):
@@ -158,26 +178,6 @@ class BlockStorage:
         self.blocks_file_size += len(header)
         self.blocks_file.write(payload)
         self.blocks_file_size += len(payload)
-
-
-def _make_seq_filename(sequence_id):
-    keyspace = '0123456789abcdefghijklmnopqrstuvwxyz'
-    top_level_count = len(keyspace) ** 2
-
-    def get_key(keyspace, n):
-        nl = len(keyspace)
-        first_loop = True
-        s = ''
-        while n or first_loop:
-            s += keyspace[n % nl]
-            n = int(n / nl)
-            first_loop = False
-        return s
-
-    top_level_name = get_key(keyspace, sequence_id % top_level_count)
-    filename = get_key(keyspace, int(sequence_id / top_level_count))
-
-    return os.path.join(top_level_name, filename)
 
 
 #  kept for reference for uuid and header information in the near term.
