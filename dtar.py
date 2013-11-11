@@ -1,4 +1,9 @@
 #!/usr/bin/env python
+#
+#  Support functions for dtar.
+#
+#  Author: Sean Reifschneider <jafo@jafo.ca>
+#  Date: Sun Nov 10, 2013
 
 import os
 from Crypto import Random
@@ -12,6 +17,14 @@ import bsddb
 
 
 def make_seq_filename(sequence_id):
+    '''Convert the sequence ID into a directory+file-name.
+
+    The returned value is a directory joined to a file, name using
+    `os.path.join()`.  The top level directory will have around 1296 entries
+    in it, and files under it start off with a 1-byte filename, expanding
+    to 2 when `sequence_id` is more than 1296, and 3 when`sequence_id`
+    is more than 46656, etc...
+    '''
     keyspace = '0123456789abcdefghijklmnopqrstuvwxyz'
     top_level_count = len(keyspace) ** 2
 
