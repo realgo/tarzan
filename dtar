@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+#
+#  Author: Sean Reifschneider <sean+opensource@realgo.com>
+#  Date: Sun Nov 10, 2013
 
 import sys
 import dtar
