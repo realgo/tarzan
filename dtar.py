@@ -53,6 +53,20 @@ def make_seq_filename(sequence_id):
     return os.path.join(top_level_name, filename)
 
 
+class SequentialIV:
+    def __init__(self):
+        self.base_iv = Random.new().read(16)
+        self.sequence = 0
+
+    def get_next_iv(self):
+        next_value = struct.unpack('!Q', self.base_iv[-8:])[0] + self.sequence
+        if next_value >= 1 << 64:
+            next_value -= 1 << 64
+        self.sequence += 1
+
+        return self.base_iv[:8] + struct.pack('!Q', next_value)
+
+
 class BlockStorageDirectory:
     '''A block storage class that writes blocks to a directory.
 
