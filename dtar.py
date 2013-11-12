@@ -54,6 +54,10 @@ def make_seq_filename(sequence_id):
 
 
 class SequentialIV:
+    '''An IV that can be incremented sequentially.
+    This is used in the DTAR tar headers to prevent re-use of the IV for each
+    file, but allow encrypting each file data-block separately.
+    '''
     def __init__(self):
         self.base_iv = Random.new().read(16)
         self.sequence = 0
@@ -64,7 +68,7 @@ class SequentialIV:
             next_value -= 1 << 64
         self.sequence += 1
 
-        return self.base_iv[:8] + struct.pack('!Q', next_value)
+        return self.base_iv[:-8] + struct.pack('!Q', next_value)
 
 
 class BlockStorageDirectory:
