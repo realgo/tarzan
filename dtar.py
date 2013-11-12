@@ -17,6 +17,7 @@ import struct
 import zlib
 import json
 import bsddb
+import uuid
 
 import tarfp
 
@@ -88,6 +89,11 @@ class BlockStorageDirectory:
         if not os.path.exists(path):
             os.mkdir(path)
             self.next_brick = 0
+            self.uuid = str(uuid.uuid1())
+            if len(self.uuid) != 36:
+                raise ValueError(
+                    'Expected 36 bytes of UUID, got %d' % len(self.uuid))
+
             self.save()
         else:
             self.load()
@@ -113,6 +119,7 @@ class BlockStorageDirectory:
                 {
                     'format_version': 1,
                     'next_brick': self.next_brick,
+                    'uuid': self.uuid,
                 }, fp)
         os.rename(tmp_filename, filename)
 
@@ -134,6 +141,8 @@ class BlockStorageDirectory:
             if data['format_version'] != 1:
                 raise ValueError(
                     'Unsupported format "%s"' % data['format_version'])
+            self.format_version = data['format_version']
+            self.uuid = data['uuid']
             self.next_brick = data['next_brick']
         self._open_blocks_map()
 
