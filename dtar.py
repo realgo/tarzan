@@ -8,7 +8,7 @@
 import os
 import sys
 from Crypto import Random
-from Crypto.Hash import SHA256
+from Crypto.Hash import SHA512
 from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
 import struct
@@ -50,26 +50,27 @@ def make_seq_filename(sequence_id):
     return os.path.join(top_level_name, filename)
 
 
-def gen_hashkey(block):
+def gen_hashkey(block, prime_hash):
     '''Generate the hashkey for the specified block.
     A hashkey is the unique identifier for a block.  It consists of the
-    32-byte binary SHA256 of the block data, followed by 4 bytes
-    representing the block size, encoded in network format.
+    64-byte binary SHA512 of the block data, followed by 4 bytes
+    representing the block size, encoded in network format.  If `prime_hash`
+    is given, it is included in the hashed data.
     '''
-    hash = SHA256.new()
+    hash = SHA512.new()
+    if prime_hash:
+        hash.update(prime_hash)
     hash.update(block)
     return hash.digest() + struct.pack('!L', len(block))
 
 
-def encode_block(block, aes_key, hashkey=None):
+def encode_block(block, aes_key, hashkey):
     '''Given a block, encode it in the block-file format.
-
-    If `hashkey` is not specified, one is generated.
 
     Header format:
         block magic number ("dt1z" for compressed+AWS or "dt1n" for just AES)
         payload length (4 bytes encoded network-format)
-        hashkey (32 bytes SHA256 hash, 4 bytes raw length)
+        hashkey (64 bytes SHA512 hash, 4 bytes raw length)
     Payload format:
         crypto IV: 16 random bytes
         block: Encrypted and possibly encoded
@@ -101,13 +102,19 @@ class BlockStorage:
     def __init__(
             self, path, password,
             blocks_size=default_blocks_size,
-            blocks_file_size_max=default_blocks_file_size_max):
+            blocks_file_size_max=default_blocks_file_size_max,
+            unique_checksums=True):
         self.path = path
         self.password = password
         self.aes_key = PBKDF2(password, '', 32)
         self.blocks_map = None
         self.blocks_size = blocks_size
         self.blocks_file_size_max = blocks_file_size_max
+
+        self.prime_hash = None
+        if unique_checksums:
+            self.prime_hash = PBKDF2(password, 'hash primer', 32)
+
         self._reset_blocks_file()
 
         if not os.path.exists(path):
@@ -192,14 +199,14 @@ class BlockStorage:
 
     def store_block(self, block, hashkey=None):
         if hashkey is None:
-            hashkey = gen_hashkey(block)
+            hashkey = gen_hashkey(block, self.prime_hash)
 
         if hashkey in self.blocks_map:
             return
         self.blocks_map[hashkey] = '%d,%d' % (
             self.current_brick, self.blocks_file_size)
 
-        header, payload = encode_block(block, self.aes_key)
+        header, payload = encode_block(block, self.aes_key, hashkey)
 
         self.toc_file.write(hashkey + struct.pack('!L', self.blocks_file_size))
         self.blocks_file.write(header)
@@ -210,12 +217,12 @@ class BlockStorage:
 
 def filter_tar_file_body(
         input_file, input_length, output_file, block_storage, tar_header):
-    file_hash = SHA256.new()
+    file_hash = SHA512.new()
     while input_length:
         data = input_file.read(min(block_storage.blocks_size, input_length))
         input_length -= len(data)
 
-        hashkey = gen_hashkey(data)
+        hashkey = gen_hashkey(data, block_storage.prime_hash)
         if hashkey not in block_storage.blocks_map:
             if not block_storage.have_active_brick() or (
                     block_storage.blocks_file_size
@@ -238,7 +245,7 @@ def checksum_body_length(tar_header, blocks_size):
     if block_leftover > 0:
         blocks += 1  # partial final block
     blocks += 1  # full file checksum
-    return 36 * blocks
+    return 68 * blocks
 
 
 def size_of_padding(exiting_length):
