@@ -387,29 +387,3 @@ def filter_tar(
 
     if block_storage.have_active_brick():
         block_storage.close_brick()
-
-
-#  kept for reference for uuid and header information in the near term.
-#import uuid
-#class Dtar:
-#    def __init__(self, path):
-#        self.path = path
-#
-#    def create(self):
-#        if os.path.exists(self.path):
-#            raise ValueError('Path already exists')
-#        os.mkdir(self.path)
-#        self.header_filename = os.path.join(self.path, 'header')
-#
-#        self.header_fp = open(self.header_filename, 'wb')
-#        self._write_header()
-#
-#    def index(self, name):
-#        return DtarIndex(self, name)
-#
-#    def _write_header(self):
-#        self.aes_iv = Random.new().read(16)
-#        self.uuid = uuid.uuid1().bytes
-#        self.header_fp.write('dtar1\000')
-#        self.header_fp.write(self.aes_iv)
-#        self.header_fp.write(self.uuid)
