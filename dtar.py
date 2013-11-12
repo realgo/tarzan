@@ -296,9 +296,23 @@ class BlockStorageDirectory:
         self.brick_file.write(payload)
         self.brick_size += len(header) + len(payload)
 
+    def gen_index_header(self, sequential_iv):
+        '''Format a DTAR index header.
+
+        :param sequential_iv: The IV object to be used for this index.
+        :type sequential_iv: str
+        :returns: str -- DTAR index header
+
+        Header format:
+            block magic number ("dti1").
+            uuid (36 bytes identifying the BlockStorage)
+            base_iv (16 random bytes)
+        '''
+        return bytes('dti1' + self.uuid) + sequential_iv.base_iv
+
 
 def filter_tar_file_body(
-        input_file, input_length, output_file, block_storage, tar_header):
+        input_file, input_length, output_file, block_storage):
     file_hash = SHA512.new()
     while input_length:
         data = input_file.read(min(block_storage.blocks_size, input_length))
@@ -360,6 +374,9 @@ def filter_tar(
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
+    sequential_iv = SequentialIV()
+    output_file.write(block_storage.gen_index_header(sequential_iv))
+
     while True:
         try:
             tar_header = tarfp.TarInfo().fromfileobj(input_file)
@@ -380,7 +397,7 @@ def filter_tar(
         output_file.write(tar_header.tobuf())
 
         filter_tar_file_body(
-            input_file, input_length, output_file, block_storage, tar_header)
+            input_file, input_length, output_file, block_storage)
 
         read_padding(input_file, input_length)
         write_padding(output_file, tar_header.size)
