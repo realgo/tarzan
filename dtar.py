@@ -2,7 +2,7 @@
 #
 #  Support functions for dtar.
 #
-#  Author: Sean Reifschneider <jafo@jafo.ca>
+#  Author: Sean Reifschneider <sean+opensource@realgo.com>
 #  Date: Sun Nov 10, 2013
 
 import os
@@ -50,55 +50,7 @@ def make_seq_filename(sequence_id):
     return os.path.join(top_level_name, filename)
 
 
-def gen_hashkey(block, prime_hash):
-    '''Generate the hashkey for the specified block.
-    A hashkey is the unique identifier for a block.  It consists of the
-    64-byte binary SHA512 of the block data, followed by 4 bytes
-    representing the block size, encoded in network format.  If `prime_hash`
-    is given, it is included in the hashed data.
-    '''
-    hash = SHA512.new()
-    if prime_hash:
-        hash.update(prime_hash)
-    hash.update(block)
-    return hash.digest() + struct.pack('!L', len(block))
-
-
-def encode_block(block, aes_key, hashkey):
-    '''Given a block, encode it in the block-file format.
-
-    Header format:
-        block magic number ("dt1z" for compressed+AWS or "dt1n" for just AES)
-        payload length (4 bytes encoded network-format)
-        hashkey (64 bytes SHA512 hash, 4 bytes raw length)
-    Payload format:
-        crypto IV: 16 random bytes
-        block: Encrypted and possibly encoded
-
-    Returns: Tuple of block header and payload
-    '''
-    block_magic = 'dt1n'
-    compressed_block = zlib.compress(block)
-    if len(compressed_block) < len(block):
-        block = compressed_block
-        block_magic = 'dt1z'
-
-    if hashkey is None:
-        hashkey = gen_hashkey(block)
-
-    crypto_iv = Random.new().read(16)
-    crypto = AES.new(aes_key, AES.MODE_CBC, crypto_iv)
-
-    padding_remainder = len(block) % 16
-    if padding_remainder != 0:
-        block += Random.new().read(16 - padding_remainder)
-    block = crypto.encrypt(block)
-
-    header = (block_magic + struct.pack('!L', len(block)) + hashkey)
-    return header, crypto_iv + block
-
-
-class BlockStorage:
+class BlockStorageDirectory:
     def __init__(
             self, path, password,
             blocks_size=default_blocks_size,
@@ -168,6 +120,50 @@ class BlockStorage:
         '''Do we have an active brick?'''
         return self.blocks_file is not None
 
+    def gen_hashkey(self, block):
+        '''Generate the hashkey for the specified block.
+        A hashkey is the unique identifier for a block.  It consists of the
+        64-byte binary SHA512 of the block data, followed by 4 bytes
+        representing the block size, encoded in network format.  If
+        `prime_hash` is given, it is included in the hashed data.
+        '''
+        hash = SHA512.new()
+        if self.prime_hash:
+            hash.update(self.prime_hash)
+        hash.update(block)
+        return hash.digest() + struct.pack('!L', len(block))
+
+    def encode_block(self, block, hashkey):
+        '''Given a block, encode it in the block-file format.
+
+        Header format:
+            block magic number ("dt1z" for compressed+AWS or "dt1n" for
+                    just AES)
+            payload length (4 bytes encoded network-format)
+            hashkey (64 bytes SHA512 hash, 4 bytes raw length)
+        Payload format:
+            crypto IV: 16 random bytes
+            block: Encrypted and possibly encoded
+
+        Returns: Tuple of block header and payload
+        '''
+        block_magic = 'dt1n'
+        compressed_block = zlib.compress(block)
+        if len(compressed_block) < len(block):
+            block = compressed_block
+            block_magic = 'dt1z'
+
+        crypto_iv = Random.new().read(16)
+        crypto = AES.new(self.aes_key, AES.MODE_CBC, crypto_iv)
+
+        padding_remainder = len(block) % 16
+        if padding_remainder != 0:
+            block += Random.new().read(16 - padding_remainder)
+        block = crypto.encrypt(block)
+
+        header = (block_magic + struct.pack('!L', len(block)) + hashkey)
+        return header, crypto_iv + block
+
     def new_brick(self):
         self.close_brick()
 
@@ -199,14 +195,14 @@ class BlockStorage:
 
     def store_block(self, block, hashkey=None):
         if hashkey is None:
-            hashkey = gen_hashkey(block, self.prime_hash)
+            hashkey = self.gen_hashkey(block)
 
         if hashkey in self.blocks_map:
             return
         self.blocks_map[hashkey] = '%d,%d' % (
             self.current_brick, self.blocks_file_size)
 
-        header, payload = encode_block(block, self.aes_key, hashkey)
+        header, payload = self.encode_block(block, hashkey)
 
         self.toc_file.write(hashkey + struct.pack('!L', self.blocks_file_size))
         self.blocks_file.write(header)
@@ -222,7 +218,7 @@ def filter_tar_file_body(
         data = input_file.read(min(block_storage.blocks_size, input_length))
         input_length -= len(data)
 
-        hashkey = gen_hashkey(data, block_storage.prime_hash)
+        hashkey = block_storage.gen_hashkey(data)
         if hashkey not in block_storage.blocks_map:
             if not block_storage.have_active_brick() or (
                     block_storage.blocks_file_size
@@ -275,7 +271,7 @@ def filter_tar(
         blocks_size=default_blocks_size,
         blocks_file_size_max=default_blocks_file_size_max,
         verbose=False):
-    block_storage = BlockStorage(
+    block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, blocks_file_size_max)
 
     while True:
