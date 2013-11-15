@@ -10,7 +10,7 @@ __license__ = 'GPLv2'
 import os
 import sys
 from Crypto import Random
-from Crypto.Hash import SHA512
+from Crypto.Hash import SHA512, HMAC
 from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
 import struct
@@ -100,7 +100,6 @@ class BlockStorageDirectory:
         self.blocks_map = None
         self.blocks_size = blocks_size
         self.brick_size_max = brick_size_max
-        self.prime_hash = PBKDF2(password, 'hash primer', 32)
 
         self._reset_brick()
 
@@ -189,8 +188,11 @@ class BlockStorageDirectory:
         :returns: str -- The hashkey associated with this block data.
         '''
         hash = SHA512.new()
-        hash.update(self.prime_hash)
         hash.update(block)
+        mac = HMAC.new(self.password, digestmod=SHA512)
+        mac.update(block)
+        hash.update(mac.digest())
+
         return hash.digest() + struct.pack('!L', len(block))
 
     def encode_block(self, block, hashkey):
