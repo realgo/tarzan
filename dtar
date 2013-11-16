@@ -5,6 +5,25 @@
 
 import sys
 import dtar
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    '-d', '--blockstore-directory',
+    help='The directory to place the blockstore data in.')
+
+parser.add_mutually_exclusive_group(required=True)
+#parser.add_argument(
+#    '-P', '--password',
+#    help='Password specified on the command-line (may be seen by other '
+#    'users or processes on the same system)')
+#parser.add_argument(
+#    '-p', '--password-file',
+#    help='Read password from this file, stripping trailing whitespace')
+#parser.add_argument(
+#    '-k', '--key-file',
+#    help='Read binary key from file')
+args = parser.parse_args()
 
 password = 'TEST_PASSWORD'
 
