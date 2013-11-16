@@ -179,7 +179,7 @@ class BlockStorageDirectory:
         '''
         return self.brick_file is not None
 
-    def gen_hashkey(self, block):
+    def gen_hashkey(self, block, hmac_digest):
         '''Generate the hashkey for the specified block.
         A hashkey is the unique identifier for a block.  It consists of the
         64-byte binary SHA512 of the block data, followed by 4 bytes
@@ -187,17 +187,17 @@ class BlockStorageDirectory:
 
         :param block: The block to hash.
         :type block: str
+        :param hmac_digest: HMAC digest to mix into hash.
+        :type hmac_digest: str
         :returns: str -- The hashkey associated with this block data.
         '''
         hash = SHA512.new()
         hash.update(block)
-        mac = HMAC.new(self.password, digestmod=SHA512)
-        mac.update(block)
-        hash.update(mac.digest())
+        hash.update(hmac_digest)
 
         return hash.digest() + struct.pack('!L', len(block))
 
-    def encode_block(self, block, hashkey):
+    def encode_block(self, block, hashkey, hmac):
         '''Given a block, encode it in the block-file format.
 
         This takes a block, potentially compresses it, encrypts it, and
@@ -208,6 +208,7 @@ class BlockStorageDirectory:
                     just AES)
             payload length (4 bytes encoded network-format)
             hashkey (64 bytes SHA512 hash, 4 bytes raw length)
+            HMAC (64 bytes SHA512 hash)
         Payload format:
             crypto IV: 16 random bytes
             block: Encrypted and possibly encoded
@@ -232,7 +233,7 @@ class BlockStorageDirectory:
             block += Random.new().read(16 - padding_remainder)
         block = crypto.encrypt(block)
 
-        header = (block_magic + struct.pack('!L', len(block)) + hashkey)
+        header = (block_magic + struct.pack('!L', len(block)) + hashkey + hmac)
         return header, crypto_iv + block
 
     def new_brick(self):
@@ -273,7 +274,7 @@ class BlockStorageDirectory:
             self.toc_file.close()
         self._reset_brick()
 
-    def store_block(self, block, hashkey=None):
+    def store_block(self, block, hashkey=None, hmac_digest=None):
         '''Store the given block in the current brick.
 
         If the block has already been stored to the BlockStorage, it is not
@@ -284,16 +285,23 @@ class BlockStorageDirectory:
         :param hashkey: (None) If specified, the hashkey for the block.
                 If not specified, the hashkey is generated internally.
         :type hashkey: str
+        :param hmac_digest: (None) If specified, the hmac_digest for the block.
+                If not specified, the hashkey is generated internally.
+        :type hmac_digest: str
         '''
+        if hmac_digest is None:
+            mac512 = HMAC.new(self.password, digestmod=SHA512)
+            mac512.update(block)
+            hmac_digest = mac512.digest()
+
         if hashkey is None:
-            hashkey = self.gen_hashkey(block)
+            hashkey = self.gen_hashkey(block, hmac_digest)
+        header, payload = self.encode_block(block, hashkey, hmac_digest)
 
         if hashkey in self.blocks_map:
             return
         self.blocks_map[hashkey] = '%d,%d' % (
             self.current_brick, self.brick_size)
-
-        header, payload = self.encode_block(block, hashkey)
 
         self.toc_file.write(hashkey + struct.pack('!L', self.brick_size))
         self.brick_file.write(header)
@@ -322,14 +330,19 @@ def filter_tar_file_body(
         data = input_file.read(min(block_storage.blocks_size, input_length))
         input_length -= len(data)
 
-        hashkey = block_storage.gen_hashkey(data)
+        mac512 = HMAC.new(block_storage.password, digestmod=SHA512)
+        mac512.update(data)
+        hmac_digest = mac512.digest()
+
+        hashkey = block_storage.gen_hashkey(data, hmac_digest)
         if hashkey not in block_storage.blocks_map:
             if not block_storage.have_active_brick() or (
                     block_storage.brick_size
                     and block_storage.brick_size
                     > block_storage.brick_size_max):
                 block_storage.new_brick()
-            block_storage.store_block(data)
+            block_storage.store_block(
+                data, hashkey=hashkey, hmac_digest=hmac_digest)
 
         file_hash.update(data)
 
