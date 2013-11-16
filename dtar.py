@@ -18,6 +18,8 @@ import zlib
 import json
 import bsddb
 import uuid
+import argparse
+import ConfigParser
 
 import tarfp
 
@@ -406,3 +408,77 @@ def filter_tar(
 
     if block_storage.have_active_brick():
         block_storage.close_brick()
+
+
+def load_config_file(filename):
+    config = ConfigParser.SafeConfigParser()
+    print filename
+    filename = os.path.expanduser(filename)
+    if not os.path.exists(filename):
+        return {}
+    config.read(filename)
+
+    data = {}
+    if config.has_option('main', 'password'):
+        data['password'] = config.get('main', 'password')
+    if config.has_option('main', 'keyfile'):
+        data['keyfile'] = config.get('main', 'keyfile')
+
+    if data.get('keyfile') and data.get('password'):
+        raise ValueError('Config file specifies both password and keyfile')
+
+    return data
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-d', '--blockstore-directory',
+        help='The directory to place the blockstore data in.')
+
+    parser.add_argument(
+        '-c', '--config-file', default='~/.dtarrc',
+        help='The configuration file to use')
+
+    parser.add_argument_group(
+        'Password', 'Options for selecting the encryption key')
+    parser.add_argument(
+        '-P', '--password',
+        help='Password specified on the command-line (may be seen by other '
+        'users or processes on the same system)')
+    parser.add_argument(
+        '-p', '--password-file',
+        help='Read password from this file, stripping trailing whitespace')
+    parser.add_argument(
+        '-k', '--key-file',
+        help='Read binary key from file')
+    args = parser.parse_args()
+
+    return args
+
+
+def get_password(args):
+    password = None
+    if args.password:
+        password = args.password
+
+    field = args.password_file
+    if password and field:
+        raise ValueError('Multiple password arguments on command-line.')
+    if field:
+        with open(field, 'r') as fp:
+            password = fp.readline().rstrip()
+
+    field = args.key_file
+    if password and field:
+        raise ValueError('Multiple password arguments on command-line.')
+    if field:
+        with open(field, 'r') as fp:
+            password = fp.read()
+
+    return password
+
+
+def error(s):
+    sys.stderr.write('%s: %s\n' % (os.path.basename(sys.argv[0]), s))
+    sys.exit(1)
