@@ -207,8 +207,9 @@ class BlockStorageDirectory:
             block magic number ("dt1z" for compressed+AWS or "dt1n" for
                     just AES)
             payload length (4 bytes encoded network-format)
-            hashkey (64 bytes SHA512 hash, 4 bytes raw length)
-            HMAC (64 bytes SHA512 hash)
+            hashkey (64 bytes SHA512 hash of block and HMAC,
+                    4 bytes raw length)
+            hmac (64 bytes SHA512 data signature)
         Payload format:
             crypto IV: 16 random bytes
             block: Encrypted and possibly encoded
@@ -308,19 +309,71 @@ class BlockStorageDirectory:
         self.brick_file.write(payload)
         self.brick_size += len(header) + len(payload)
 
-    def gen_index_header(self, sequential_iv):
-        '''Format a DTAR index header.
 
-        :param sequential_iv: The IV object to be used for this index.
-        :type sequential_iv: str
-        :returns: str -- DTAR index header
+class EncryptIndexClass:
+    def __init__(self, fp, password, blockstore_uuid):
+        self.original_fp = fp
+        self.password = password
+        self.blockstore_uuid = blockstore_uuid
+        self.sequential_iv = SequentialIV()
+        self.buffer = ''
+        self.split_size = 102400
+
+        fp.write(self.format_index_header())
+
+    def format_index_header(self):
+        '''Format a DTAR index header.
 
         Header format:
             block magic number ("dti1").
             uuid (36 bytes identifying the BlockStorage)
             base_iv (16 random bytes)
+
+        :returns: str -- DTAR index header
         '''
-        return bytes('dti1' + self.uuid) + sequential_iv.base_iv
+        return bytes(
+            'dti1' + self.blockstore_uuid) + self.sequential_iv.base_iv
+
+    def flush(self):
+        crypto_iv = self.sequential_iv.get_next_iv()
+        block = self.buffer
+        last_block = False if block else True
+        self.buffer = ''
+        compressed = False
+
+        if not last_block:
+            compressed_block = zlib.compress(block)
+            if len(compressed_block) < len(block):
+                block = compressed_block
+                compressed = True
+
+        crypto = AES.new(self.aes_key, AES.MODE_CBC, crypto_iv)
+        block = crypto.encrypt(block)
+
+        mac512 = HMAC.new(self.password, digestmod=SHA512)
+        mac512.update(block)
+        hmac_digest = mac512.digest()
+
+        header = self.format_header(
+            compressed, crypto_iv, hmac_digest, len(block))
+
+        self.fp.write(header)
+        self.fp.write(block)
+
+        if last_block:
+            self.fp.close()
+            self.fp = None
+
+    def format_header(self, compressed, crypto_iv, block_hmac, length):
+        magic = 'dtbz' if compressed else 'dtb1'
+        return magic + crypto_iv + block_hmac, struct.pack('!L', length)
+
+    def beginning_of_file(self):
+        if len(self.block) >= self.split_size:
+            self.flush()
+
+    def write(self, data):
+        self.block += data
 
 
 def filter_tar_file_body(
@@ -391,8 +444,8 @@ def filter_tar(
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
-    sequential_iv = SequentialIV()
-    output_file.write(block_storage.gen_index_header(sequential_iv))
+    EncryptIndexClass(output_file, password, block_storage.uuid)
+    #@@@@
 
     while True:
         try:
