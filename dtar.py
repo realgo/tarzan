@@ -311,12 +311,12 @@ class BlockStorageDirectory:
 
 
 class EncryptIndexClass:
-    def __init__(self, fp, password, blockstore_uuid):
-        self.original_fp = fp
+    def __init__(self, fp, password, blockstore):
+        self.fp = fp
         self.password = password
-        self.blockstore_uuid = blockstore_uuid
+        self.blockstore = blockstore
         self.sequential_iv = SequentialIV()
-        self.buffer = ''
+        self.block = ''
         self.split_size = 102400
 
         fp.write(self.format_index_header())
@@ -332,41 +332,48 @@ class EncryptIndexClass:
         :returns: str -- DTAR index header
         '''
         return bytes(
-            'dti1' + self.blockstore_uuid) + self.sequential_iv.base_iv
-
-    def flush(self):
-        crypto_iv = self.sequential_iv.get_next_iv()
-        block = self.buffer
-        last_block = False if block else True
-        self.buffer = ''
-        compressed = False
-
-        if not last_block:
-            compressed_block = zlib.compress(block)
-            if len(compressed_block) < len(block):
-                block = compressed_block
-                compressed = True
-
-        crypto = AES.new(self.aes_key, AES.MODE_CBC, crypto_iv)
-        block = crypto.encrypt(block)
-
-        mac512 = HMAC.new(self.password, digestmod=SHA512)
-        mac512.update(block)
-        hmac_digest = mac512.digest()
-
-        header = self.format_header(
-            compressed, crypto_iv, hmac_digest, len(block))
-
-        self.fp.write(header)
-        self.fp.write(block)
-
-        if last_block:
-            self.fp.close()
-            self.fp = None
+            'dti1' + self.blockstore.uuid) + self.sequential_iv.base_iv
 
     def format_header(self, compressed, crypto_iv, block_hmac, length):
         magic = 'dtbz' if compressed else 'dtb1'
-        return magic + crypto_iv + block_hmac, struct.pack('!L', length)
+        return magic + crypto_iv + block_hmac + struct.pack('!L', length)
+
+    def flush(self):
+        is_last_block = False if len(self.block) >= 16 else True
+        if is_last_block:
+            block_to_write = self.block
+            self.block = None
+        else:
+            remainder = len(self.block) % 16
+            block_to_write = self.block[:-remainder]
+            self.block = self.block[-remainder:]
+
+        compressed = False
+        hmac_digest = '\0' * 64
+        crypto_iv = self.sequential_iv.get_next_iv()
+        if not is_last_block:
+            mac512 = HMAC.new(self.password, digestmod=SHA512)
+            mac512.update(block_to_write)
+            hmac_digest = mac512.digest()
+
+            compressed_block = zlib.compress(block_to_write)
+            if len(compressed_block) < len(block_to_write):
+                block_to_write = compressed_block
+                compressed = True
+
+            crypto = AES.new(self.blockstore.aes_key, AES.MODE_CBC, crypto_iv)
+            block_to_write = crypto.encrypt(block_to_write)
+
+        header = self.format_header(
+            compressed, crypto_iv, hmac_digest, len(block_to_write))
+
+        self.fp.write(header)
+        self.fp.write(block_to_write)
+        self.fp.flush()
+
+        if is_last_block:
+            self.fp.close()
+            self.fp = None
 
     def beginning_of_file(self):
         if len(self.block) >= self.split_size:
@@ -374,6 +381,11 @@ class EncryptIndexClass:
 
     def write(self, data):
         self.block += data
+
+    def close(self):
+        if len(self.block) < 16:
+            self.flush()
+        self.flush()
 
 
 def filter_tar_file_body(
@@ -444,8 +456,7 @@ def filter_tar(
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
-    EncryptIndexClass(output_file, password, block_storage.uuid)
-    #@@@@
+    encrypted_output = EncryptIndexClass(output_file, password, block_storage)
 
     while True:
         try:
@@ -454,23 +465,25 @@ def filter_tar(
             break
 
         if verbose:
-            sys.stderr.write(
-                '%s size=%d\n' % (repr(tar_header), tar_header.size))
+            filetype = tar_header_to_filetype(tar_header)
+            sys.stderr.write('%s %-10s %s\n' % (
+                filetype, tar_header.size, tar_header.path))
 
+        encrypted_output.beginning_of_file()
         if tar_header.size == 0:
-            output_file.write(tar_header.tobuf())
+            encrypted_output.write(tar_header.tobuf())
             continue
 
         input_length = tar_header.size
         tar_header.size = checksum_body_length(
             tar_header, block_storage.blocks_size)
-        output_file.write(tar_header.tobuf())
+        encrypted_output.write(tar_header.tobuf())
 
         filter_tar_file_body(
-            input_file, input_length, output_file, block_storage)
+            input_file, input_length, encrypted_output, block_storage)
 
         read_padding(input_file, input_length)
-        write_padding(output_file, tar_header.size)
+        write_padding(encrypted_output, tar_header.size)
 
     if block_storage.have_active_brick():
         block_storage.close_brick()
@@ -478,7 +491,6 @@ def filter_tar(
 
 def load_config_file(filename):
     config = ConfigParser.SafeConfigParser()
-    print filename
     filename = os.path.expanduser(filename)
     if not os.path.exists(filename):
         return {}
@@ -501,6 +513,9 @@ def parse_args():
     parser.add_argument(
         '-d', '--blockstore-directory',
         help='The directory to place the blockstore data in.')
+    parser.add_argument(
+        '-v', '--verbose', action='store_true',
+        help='Display information about what actions are taken to stderr.')
 
     parser.add_argument(
         '-c', '--config-file', default='~/.dtarrc',
@@ -543,6 +558,24 @@ def get_password(args):
             password = fp.read()
 
     return password
+
+
+def tar_header_to_filetype(tar_header):
+    filetype = '?'
+    if tar_header.isreg():
+        filetype = '-'
+    if tar_header.isdir():
+        filetype = 'd'
+    if tar_header.isblk():
+        filetype = 'b'
+    if tar_header.ischr():
+        filetype = 'c'
+    if tar_header.islnk() or tar_header.issym():
+        filetype = 'l'
+    if tar_header.isfifo():
+        filetype = 'p'
+
+    return filetype
 
 
 def error(s):

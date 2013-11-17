@@ -26,10 +26,8 @@ def main():
     except ValueError as e:
         dtar.error(e.message)
 
-    print 'password:', password
-
     dtar.filter_tar(sys.stdin, sys.stdout, '/dev/shm/test.bs', password,
-                    verbose=True)
+                    verbose=args.verbose)
 
 if __name__ == '__main__':
     main()
