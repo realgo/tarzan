@@ -97,7 +97,6 @@ class BlockStorageDirectory:
         :type brick_size_max: int
         '''
         self.path = path
-        self.password = password
         self.aes_key = PBKDF2(password, '', 32)
         self.blocks_map = None
         self.blocks_size = blocks_size
@@ -291,7 +290,7 @@ class BlockStorageDirectory:
         :type hmac_digest: str
         '''
         if hmac_digest is None:
-            mac512 = HMAC.new(self.password, digestmod=SHA512)
+            mac512 = HMAC.new(self.aes_key, digestmod=SHA512)
             mac512.update(block)
             hmac_digest = mac512.digest()
 
@@ -311,9 +310,21 @@ class BlockStorageDirectory:
 
 
 class EncryptIndexClass:
-    def __init__(self, fp, password, blockstore):
+    '''Encrypt the tar-format index output.
+
+    This acts like a file and takes the tar-format index file and encrypts
+    it with HMAC message digests and a sequential series of IVs
+    (initialized to be random).
+    '''
+    def __init__(self, fp, blockstore):
+        '''
+        :param fp: The file to write encrypted output to.
+        :type fp: file
+        :param blockstore: The output blockstore (provides the aes_key
+                and UUID).
+        :type blockstore: BlockStore
+        '''
         self.fp = fp
-        self.password = password
         self.blockstore = blockstore
         self.sequential_iv = SequentialIV()
         self.block = ''
@@ -335,10 +346,34 @@ class EncryptIndexClass:
             'dti1' + self.blockstore.uuid) + self.sequential_iv.base_iv
 
     def format_header(self, compressed, crypto_iv, block_hmac, length):
+        '''Format a header for each block of payload.
+
+        :param compressed: If true, the block is compressed.
+        :type compressed: boolean
+        :param crypto_iv: The IV for this block.
+        :type crypto_iv: str
+        :param block_hmac: The HMAC of the plaintext block.
+        :type block_hmac: str
+        :param length: Length of the compressed block.
+        :type length: int
+
+        :returns: str -- The block header.
+        '''
         magic = 'dtbz' if compressed else 'dtb1'
         return magic + crypto_iv + block_hmac + struct.pack('!L', length)
 
     def flush(self):
+        '''Flush the current buffered data.
+
+        Takes the current buffer and writes it out as a dtar block.
+        The block length is rounded to 16 bytes (required by AES),
+        it is compressed (if that reduces the block) and encrypted,
+        and the result is written out.  In the event of being called
+        without a full remainder block, it is considered to be the last
+        block and a short block with trailing NUL padding is written.
+
+        :returns: str -- The block header.
+        '''
         is_last_block = False if len(self.block) >= 16 else True
         if is_last_block:
             block_to_write = self.block
@@ -352,7 +387,7 @@ class EncryptIndexClass:
         hmac_digest = '\0' * 64
         crypto_iv = self.sequential_iv.get_next_iv()
         if not is_last_block:
-            mac512 = HMAC.new(self.password, digestmod=SHA512)
+            mac512 = HMAC.new(self.blockstore.aes_key, digestmod=SHA512)
             mac512.update(block_to_write)
             hmac_digest = mac512.digest()
 
@@ -376,13 +411,35 @@ class EncryptIndexClass:
             self.fp = None
 
     def beginning_of_file(self):
+        '''Notify us that a new file header is starting.
+
+        This is so that we can nicely split the encryption blocks on the
+        output.  If the output buffer is larger than `split_size`, the buffer
+        is flushed.
+        '''
         if len(self.block) >= self.split_size:
             self.flush()
 
     def write(self, data):
+        '''Write a block of data.
+
+        This data is written to an internal buffer, so that it can be
+        collected into and blocked for output encryption, MACing, and
+        compression.
+
+        :param data: Data to be written.
+        :type data: str
+
+        :returns: str -- The block header.
+        '''
         self.block += data
 
     def close(self):
+        '''Finalize the output.
+
+        All buffered data is written, and a closing block is written.  This
+        object is no longer usable after this.
+        '''
         if len(self.block) < 16:
             self.flush()
         self.flush()
@@ -395,7 +452,7 @@ def filter_tar_file_body(
         data = input_file.read(min(block_storage.blocks_size, input_length))
         input_length -= len(data)
 
-        mac512 = HMAC.new(block_storage.password, digestmod=SHA512)
+        mac512 = HMAC.new(block_storage.aes_key, digestmod=SHA512)
         mac512.update(data)
         hmac_digest = mac512.digest()
 
@@ -456,7 +513,7 @@ def filter_tar(
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
-    encrypted_output = EncryptIndexClass(output_file, password, block_storage)
+    encrypted_output = EncryptIndexClass(output_file, block_storage)
 
     while True:
         try:
