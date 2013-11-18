@@ -447,6 +447,17 @@ class EncryptIndexClass:
 
 def filter_tar_file_body(
         input_file, input_length, output_file, block_storage):
+    '''Format a header for each block of payload.
+
+    :param input_file: Where to read the source file data.
+    :type input_file: file
+    :param input_length: Original file size in bytes.
+    :type input_length: int
+    :param output_file: Where to write the detached block output.
+    :type output_file: file
+    :param block_storage: Where to look-up duplicates and store block data.
+    :type block_storage: BlockStorage
+    '''
     file_hash = SHA512.new()
     while input_length:
         data = input_file.read(min(block_storage.blocks_size, input_length))
@@ -476,6 +487,17 @@ def filter_tar_file_body(
 
 
 def checksum_body_length(tar_header, blocks_size):
+    '''Calculate the length of a body of detached hashkeys.
+
+    :param tar_header: Tar header object for this file, this is where it
+            gets the size of the original block.
+    :type tar_header: int
+    :param blocks_size: Size of the BlockStorage block size, used to
+            calculate how many blocks the file is split up into.
+    :type blocks_size: int
+
+    :returns: int -- Size of the hashkey-only body.
+    '''
     blocks, block_leftover = divmod(tar_header.size, blocks_size)
     if block_leftover > 0:
         blocks += 1  # partial final block
@@ -484,6 +506,16 @@ def checksum_body_length(tar_header, blocks_size):
 
 
 def size_of_padding(exiting_length):
+    '''Figure out how many NULs of padding are needed for tar block.
+
+    This takes a size and figures out how many bytes of padding
+    need to be added to make it an even tar block size.
+
+    :param existing_length: Size of data that needs to be padded.
+    :type existing_length: int
+
+    :returns: int -- Number of bytes to pad out the block.
+    '''
     remainder = exiting_length % tarfp.BLOCKSIZE
     if remainder == 0:
         return 0
@@ -491,12 +523,32 @@ def size_of_padding(exiting_length):
 
 
 def write_padding(fp, already_written):
+    '''Write out tar padding blocks.
+
+    :param fp: Where to write padding.
+    :type fp: file
+    :param already_written: Size of data already written.
+    :type already_written: int
+    '''
     length = size_of_padding(already_written)
     if length:
         fp.write('\0' * length)
 
 
 def read_padding(fp, already_read):
+    '''Read tar padding bytes and verify.
+
+    Figure out how many bytes of padding are needed to end this tar
+    block, read them from `fp` and verify that they are all NUL bytes.
+    If they are not NUL, :py:exc:`ValueError` is raised.
+
+    :param fp: File to read blocks from.
+    :type fp: file
+    :param already_read: Number of bytes already read.
+    :type already_read: int
+
+    :raises: :py:exc:`ValueError`
+    '''
     padding_length = size_of_padding(already_read)
     if padding_length != 0:
         padding = fp.read(padding_length)
@@ -510,6 +562,31 @@ def filter_tar(
         blocks_size=default_blocks_size,
         brick_size_max=default_brick_size_max,
         verbose=False):
+    '''Read a tar file from `input_file`, and filter it into a DTAR file
+    that is written to `output_file`.
+
+    :param input_file: Where to read tar file from.
+    :type input_file: file
+    :param output_file: Where to write the encrypted DTAR file.
+    :type output_file: file
+    :param block_storage_path: Directory to store detached blocks into.
+    :type block_storage_path: str
+    :param password: String used to encrypt data.  This can be a password
+            or passphrase, or it can be a binary key.  Either way, it is
+            passed through a KDF.
+    :type password: str
+    :param blocks_size: Size that input files are broken down into.
+            Smaller sizes result in better deduplication, but at the cost
+            of more storage and encryption overhead and more random IOPS
+            for creating and reading.
+    :type blocks_size: int
+    :param brick_size_max: The blocks are collected into bricks of this
+            size.  The bricks can be slightly larger than this, by up to
+            `blocks_size` bytes plus the lock header size.
+    :type brick_size_max: int
+    :param verbose: (False) Display operation information to stderr if True.
+    :type verbose: bool
+    '''
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
@@ -547,6 +624,17 @@ def filter_tar(
 
 
 def load_config_file(filename):
+    '''Load configuration data from a file.
+
+    This uses ConfigParser to read a Windows INI-style configuration file
+    that specifies default information.  Quietly returns an empty
+    configuration database if file does not exist.
+
+    :param filename: Path name of configuration file to read.
+    :type filename: str
+
+    :returns: dict -- Dictionary with configuration information.
+    '''
     config = ConfigParser.SafeConfigParser()
     filename = os.path.expanduser(filename)
     if not os.path.exists(filename):
@@ -566,6 +654,10 @@ def load_config_file(filename):
 
 
 def parse_args():
+    '''Process command-line arguments.
+
+    :returns: :py:class:`argparse.Namespace` -- Parsed argument information.
+    '''
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-d', '--blockstore-directory',
@@ -578,46 +670,53 @@ def parse_args():
         '-c', '--config-file', default='~/.dtarrc',
         help='The configuration file to use')
 
-    parser.add_argument_group(
-        'Password', 'Options for selecting the encryption key')
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         '-P', '--password',
         help='Password specified on the command-line (may be seen by other '
         'users or processes on the same system)')
-    parser.add_argument(
+    group.add_argument(
         '-p', '--password-file',
         help='Read password from this file, stripping trailing whitespace')
-    parser.add_argument(
+    group.add_argument(
         '-k', '--key-file',
         help='Read binary key from file')
+
     args = parser.parse_args()
 
     return args
 
 
 def get_password(args):
-    password = None
+    '''Select a password based in arguments.
+
+    :param args: Parsed arguments to process.
+    :type args: :py:class:`argparse.Namespace`
+
+    :returns: str or None -- The password from arguments, if any.
+    '''
     if args.password:
-        password = args.password
+        return args.password
 
-    field = args.password_file
-    if password and field:
-        raise ValueError('Multiple password arguments on command-line.')
-    if field:
-        with open(field, 'r') as fp:
-            password = fp.readline().rstrip()
+    if args.password_file:
+        with open(args.password_file, 'r') as fp:
+            return fp.readline().rstrip()
 
-    field = args.key_file
-    if password and field:
-        raise ValueError('Multiple password arguments on command-line.')
-    if field:
-        with open(field, 'r') as fp:
-            password = fp.read()
-
-    return password
+    if args.key_file:
+        with open(args.key_file, 'r') as fp:
+            return fp.read()
 
 
 def tar_header_to_filetype(tar_header):
+    '''Convert a tar header file type into a string.
+
+    This is one character representing the file type, as with "ls -l".
+
+    :param tar_header: Tar header to get file type information from.
+    :type tar_header: Tar Header
+
+    :returns: str -- File type string.
+    '''
     filetype = '?'
     if tar_header.isreg():
         filetype = '-'
@@ -635,6 +734,14 @@ def tar_header_to_filetype(tar_header):
     return filetype
 
 
-def error(s):
-    sys.stderr.write('%s: %s\n' % (os.path.basename(sys.argv[0]), s))
+def error(msg):
+    '''Write an error from the command-line client and exit.
+
+    Exits with code 1, after writing the `msg` string and a dtar identifying
+    prefix.  Message is written to stderr.
+
+    :param msg: Message to write to the user.
+    :type msg: str
+    '''
+    sys.stderr.write('%s: %s\n' % (os.path.basename(sys.argv[0]), msg))
     sys.exit(1)
