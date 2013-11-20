@@ -682,6 +682,26 @@ def parse_args():
         '-k', '--key-file',
         help='Read binary key from file')
 
+    subparsers = parser.add_subparsers(help='DTAR sub-commands')
+
+    parser_create = subparsers.add_parser(
+        'create',
+        help='Create a dtar file, reading the original tar '
+        'file from stdin and writing the dtar index to stdout.')
+    parser_create.set_defaults(command='create')
+
+    parser_list = subparsers.add_parser(
+        'list',
+        help='List the files in a dtar index, writing a list to '
+        'stdout.')
+    parser_list.set_defaults(command='list')
+
+    parser_extract = subparsers.add_parser(
+        'extract',
+        help='Reconstruct the original tar file, given a dtar '
+        'index the results are written to stdout.')
+    parser_extract.set_defaults(command='extract')
+
     args = parser.parse_args()
 
     return args
