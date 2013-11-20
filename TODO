@@ -1,3 +1,4 @@
+Fix last block of index, something isn't quite right.
 The output file encryption is done with blocks of 16.  But I'm compressing
     it, so is it going to be 16 bytes still?  Seems like I can't guarantee
     that.
