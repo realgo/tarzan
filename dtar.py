@@ -670,7 +670,7 @@ def parse_args():
         '-c', '--config-file', default='~/.dtarrc',
         help='The configuration file to use')
 
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
         '-P', '--password',
         help='Password specified on the command-line (may be seen by other '
@@ -684,23 +684,35 @@ def parse_args():
 
     subparsers = parser.add_subparsers(help='DTAR sub-commands')
 
-    parser_create = subparsers.add_parser(
+    command_parser = subparsers.add_parser(
         'create',
         help='Create a dtar file, reading the original tar '
         'file from stdin and writing the dtar index to stdout.')
-    parser_create.set_defaults(command='create')
+    command_parser.set_defaults(command='create')
+    command_parser.add_argument(
+        '-i', '--in', dest='in_file',
+        help='File to read original tar file data from (default=stdin)')
+    command_parser.add_argument(
+        '-o', '--out', dest='out_file',
+        help='File to write dtar output to (default=stdout)')
 
-    parser_list = subparsers.add_parser(
+    command_parser = subparsers.add_parser(
         'list',
         help='List the files in a dtar index, writing a list to '
         'stdout.')
-    parser_list.set_defaults(command='list')
+    command_parser.set_defaults(command='list')
+    command_parser.add_argument(
+        '-i', '--in', dest='in_file',
+        help='File to read original tar file data from (default=stdin)')
+    command_parser.add_argument(
+        '-o', '--out', dest='out_file',
+        help='File to write dtar output to (default=stdout)')
 
-    parser_extract = subparsers.add_parser(
+    command_parser = subparsers.add_parser(
         'extract',
         help='Reconstruct the original tar file, given a dtar '
         'index the results are written to stdout.')
-    parser_extract.set_defaults(command='extract')
+    command_parser.set_defaults(command='extract')
 
     args = parser.parse_args()
 
