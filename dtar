@@ -15,21 +15,23 @@ def open_args(args):
     if args.out_file and args.out_file != '-':
         out_fp = open(args.out_file, 'wb')
     else:
-        out_fp = sys.stdin
+        out_fp = sys.stdout
 
     return in_fp, out_fp
 
 
 def create(args, password):
     in_fp, out_fp = open_args(args)
-    dtar.filter_tar(in_fp, out_fp, args.blockstore_directory, password,
-                    verbose=args.verbose)
+    dtar.filter_tar(
+        in_fp, out_fp, args.blockstore_directory, password,
+        verbose=args.verbose)
 
 
 def list(args, password):
     in_fp, out_fp = open_args(args)
-    dtar.filter_tar(in_fp, out_fp, args.blockstore_directory, password,
-                    verbose=args.verbose)
+    dtar.list_dtar(
+        in_fp, out_fp, args.blockstore_directory, password,
+        verbose=args.verbose)
 
 
 def main():

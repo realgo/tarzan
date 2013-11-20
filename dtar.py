@@ -380,24 +380,26 @@ class EncryptIndexClass:
             self.block = None
         else:
             remainder = len(self.block) % 16
-            block_to_write = self.block[:-remainder]
-            self.block = self.block[-remainder:]
+            block_to_write = self.block[:len(self.block) - remainder]
+            self.block = self.block[len(self.block) - remainder:]
 
         compressed = False
         hmac_digest = '\0' * 64
         crypto_iv = self.sequential_iv.get_next_iv()
-        if not is_last_block:
-            mac512 = HMAC.new(self.blockstore.aes_key, digestmod=SHA512)
-            mac512.update(block_to_write)
-            hmac_digest = mac512.digest()
 
-            compressed_block = zlib.compress(block_to_write)
-            if len(compressed_block) < len(block_to_write):
-                block_to_write = compressed_block
-                compressed = True
+        mac512 = HMAC.new(self.blockstore.aes_key, digestmod=SHA512)
+        mac512.update(block_to_write)
+        hmac_digest = mac512.digest()
 
-            crypto = AES.new(self.blockstore.aes_key, AES.MODE_CBC, crypto_iv)
-            block_to_write = crypto.encrypt(block_to_write)
+        compressed_block = zlib.compress(block_to_write)
+        if len(compressed_block) < len(block_to_write):
+            block_to_write = compressed_block
+            compressed = True
+
+        block_to_write += '\0' * (16 - (len(block_to_write) % 16))
+
+        crypto = AES.new(self.blockstore.aes_key, AES.MODE_CBC, crypto_iv)
+        block_to_write = crypto.encrypt(block_to_write)
 
         header = self.format_header(
             compressed, crypto_iv, hmac_digest, len(block_to_write))
@@ -432,6 +434,8 @@ class EncryptIndexClass:
 
         :returns: str -- The block header.
         '''
+        if len(self.block) >= 2 * self.split_size:
+            self.flush()
         self.block += data
 
     def close(self):
@@ -443,6 +447,75 @@ class EncryptIndexClass:
         if len(self.block) < 16:
             self.flush()
         self.flush()
+
+
+class DecryptIndexClass:
+    '''Decrypt the dtar format file.
+
+    This acts like a file and reads the dtar-format encrypted index file
+    and decrypts it.
+    '''
+    def __init__(self, fp, blockstore):
+        '''
+        :param fp: The file to read encrypted dtar index from.
+        :type fp: file
+        :param blockstore: The output blockstore (provides the aes_key
+                and UUID).
+        :type blockstore: BlockStore
+        '''
+        self.fp = fp
+        self.blockstore = blockstore
+        self.buffer = ''
+        self.read_index_header()
+
+    def read(self, length):
+        while length > len(self.buffer):
+            self.read_next_payload()
+
+        data = self.buffer[:length]
+        self.buffer = self.buffer[length:]
+        return data
+
+    def read_index_header(self):
+        '''Read the index header at the beginning of the dtar file.
+
+        See :py:func:`EncryptIndexClass::format_index_header` for the
+        layout.'''
+        data = self.fp.read(4 + 36 + 16)
+        if data[:4] != 'dti1':
+            raise ValueError('Invalid header, did not find "dti1"')
+        self.uuid = data[4:40]
+        self.base_iv = data[40:56]
+
+    def read_next_payload(self):
+        '''Read the next block of payload.
+
+        See :py:func:`EncryptIndexClass::format_header` for the
+        layout of the header.'''
+
+        data = self.fp.read(4 + 16 + 64 + 4)
+
+        magic = data[:4]
+        if magic not in ['dtbz', 'dtb1']:
+            raise ValueError('Invalid payload, did not find magic number')
+        crypto_iv = data[4:20]
+        block_hmac = data[20:84]
+        payload_length = struct.unpack('!L', data[84:88])[0]
+
+        payload = self.fp.read(payload_length)
+        crypto = AES.new(self.blockstore.aes_key, AES.MODE_CBC, crypto_iv)
+        payload = crypto.decrypt(payload)
+        if magic.endswith('z'):
+            payload = zlib.decompress(payload)
+
+        mac512 = HMAC.new(self.blockstore.aes_key, digestmod=SHA512)
+        mac512.update(payload)
+        resulting_hmac = mac512.digest()
+
+        if resulting_hmac != block_hmac:
+            raise ValueError('Block HMAC did not match decrypted data')
+
+        self.buffer += payload
 
 
 def filter_tar_file_body(
@@ -621,6 +694,58 @@ def filter_tar(
 
     if block_storage.have_active_brick():
         block_storage.close_brick()
+
+
+def list_dtar(
+        input_file, output_file, block_storage_path, password,
+        blocks_size=default_blocks_size,
+        brick_size_max=default_brick_size_max,
+        verbose=False):
+    '''Read a dtar and list the file entries that it contains.
+
+    :param input_file: Where to read encrypted dtar file from.
+    :type input_file: file
+    :param output_file: Where to write the contents list.
+    :type output_file: file
+    :param block_storage_path: Directory to store detached blocks into.
+    :type block_storage_path: str
+    :param password: String used to encrypt data.  This can be a password
+            or passphrase, or it can be a binary key.  Either way, it is
+            passed through a KDF.
+    :type password: str
+    :param blocks_size: Size that input files are broken down into.
+            Smaller sizes result in better deduplication, but at the cost
+            of more storage and encryption overhead and more random IOPS
+            for creating and reading.
+    :type blocks_size: int
+    :param brick_size_max: The blocks are collected into bricks of this
+            size.  The bricks can be slightly larger than this, by up to
+            `blocks_size` bytes plus the lock header size.
+    :type brick_size_max: int
+    :param verbose: (False) Display operation information to stderr if True.
+    :type verbose: bool
+    '''
+    block_storage = BlockStorageDirectory(
+        block_storage_path, password, blocks_size, brick_size_max)
+
+    encrypted_input = DecryptIndexClass(input_file, block_storage)
+
+    while True:
+        try:
+            tar_header = tarfp.TarInfo().fromfileobj(encrypted_input)
+        except tarfp.EOFHeaderError:
+            break
+
+        filetype = tar_header_to_filetype(tar_header)
+        output_file.write('%s %-10s %s\n' % (
+            filetype, tar_header.size, tar_header.path))
+
+        if tar_header.size > 0:
+            bytes_to_read = tar_header.size + size_of_padding(tar_header.size)
+            while bytes_to_read:
+                block_size = min(bytes_to_read, 102400)
+                bytes_to_read -= block_size
+                encrypted_input.read(block_size)
 
 
 def load_config_file(filename):
