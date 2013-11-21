@@ -51,4 +51,5 @@ Contact Information
 Author: Sean Reifschneider <sean+opensource@realgo.com>  
 Date: Mon Nov 11, 2013  
 License: GPLv2
+License: tarfp.py: Modified from Python source code to handle file object.
 Code/Bugs: https://github.com/realgo/dtar
