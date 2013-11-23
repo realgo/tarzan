@@ -27,6 +27,13 @@ def create(args, password):
         verbose=args.verbose)
 
 
+def decrypt(args, password):
+    in_fp, out_fp = open_args(args)
+    dtar.decrypt_dtar(
+        in_fp, out_fp, args.blockstore_directory, password,
+        verbose=args.verbose)
+
+
 def list(args, password):
     in_fp, out_fp = open_args(args)
     dtar.list_dtar(
@@ -55,6 +62,8 @@ def main():
 
     if args.command == 'create':
         create(args, password)
+    if args.command == 'decrypt':
+        decrypt(args, password)
     if args.command == 'list':
         list(args, password)
 

@@ -316,20 +316,24 @@ class EncryptIndexClass:
     it with HMAC message digests and a sequential series of IVs
     (initialized to be random).
     '''
-    def __init__(self, fp, blockstore):
+    def __init__(self, fp, blockstore, verbose=False):
         '''
         :param fp: The file to write encrypted output to.
         :type fp: file
         :param blockstore: The output blockstore (provides the aes_key
                 and UUID).
         :type blockstore: BlockStore
+        :param verbose: Display verbose information about it.
+        :type verbose: Boolean
         '''
         self.fp = fp
         self.blockstore = blockstore
-        self.sequential_iv = SequentialIV()
+        self.verbose = verbose
         self.block = ''
         self.split_size = 102400
+        self.bytes_written = 0
 
+        self.sequential_iv = SequentialIV()
         fp.write(self.format_index_header())
 
     def format_index_header(self):
@@ -342,6 +346,11 @@ class EncryptIndexClass:
 
         :returns: str -- DTAR index header
         '''
+        if self.verbose:
+            sys.stderr.write(
+                'Formatting index header: uuid: "%s", base_iv: "%s"\n'
+                % (self.blockstore.uuid, repr(self.sequential_iv.base_iv)))
+
         return bytes(
             'dti1' + self.blockstore.uuid) + self.sequential_iv.base_iv
 
@@ -360,6 +369,13 @@ class EncryptIndexClass:
         :returns: str -- The block header.
         '''
         magic = 'dtbz' if compressed else 'dtb1'
+
+        if self.verbose:
+            sys.stderr.write(
+                'Format payload header: magic: "%s", length: %d, '
+                'crypto_iv: "%s" block_hmac: "%s"\n'
+                % (magic, length, repr(crypto_iv), repr(block_hmac)))
+
         return magic + crypto_iv + block_hmac + struct.pack('!L', length)
 
     def flush(self):
@@ -374,6 +390,9 @@ class EncryptIndexClass:
 
         :returns: str -- The block header.
         '''
+        if self.verbose:
+            sys.stderr.write('Flush\n')
+
         is_last_block = False if len(self.block) >= 16 else True
         if is_last_block:
             block_to_write = self.block
@@ -419,6 +438,9 @@ class EncryptIndexClass:
         output.  If the output buffer is larger than `split_size`, the buffer
         is flushed.
         '''
+        if self.verbose:
+            sys.stderr.write('beginning_of_file\n')
+
         if len(self.block) >= self.split_size:
             self.flush()
 
@@ -434,6 +456,10 @@ class EncryptIndexClass:
 
         :returns: str -- The block header.
         '''
+        if self.verbose:
+            sys.stderr.write('write(length=%d)\n' % len(data))
+
+        self.bytes_written += len(data)
         if len(self.block) >= 2 * self.split_size:
             self.flush()
         self.block += data
@@ -444,6 +470,14 @@ class EncryptIndexClass:
         All buffered data is written, and a closing block is written.  This
         object is no longer usable after this.
         '''
+        if self.verbose:
+            sys.stderr.write('Close\n')
+
+        trailing_padding = 10240 - (self.bytes_written % 10240)
+        if trailing_padding == 0:
+            trailing_padding = 10240
+        self.write('\0' * trailing_padding)
+
         if len(self.block) < 16:
             self.flush()
         self.flush()
@@ -455,20 +489,34 @@ class DecryptIndexClass:
     This acts like a file and reads the dtar-format encrypted index file
     and decrypts it.
     '''
-    def __init__(self, fp, blockstore):
+    def __init__(self, fp, blockstore, verbose=False):
         '''
         :param fp: The file to read encrypted dtar index from.
         :type fp: file
         :param blockstore: The output blockstore (provides the aes_key
                 and UUID).
         :type blockstore: BlockStore
+        :param verbose: Display verbose information about it.
+        :type verbose: Boolean
         '''
         self.fp = fp
         self.blockstore = blockstore
         self.buffer = ''
+        self.verbose = verbose
         self.read_index_header()
 
     def read(self, length):
+        '''Read data from the encrypted stream.
+
+        :param length: Number of bytes of input to read.
+        :type length: int
+        :returns: str -- Data that was read.
+        '''
+        if self.verbose:
+            sys.stderr.write(
+                'read(length=%d), existing buffer: %d\n'
+                % (length, len(self.buffer)))
+
         while length > len(self.buffer):
             self.read_next_payload()
 
@@ -487,26 +535,48 @@ class DecryptIndexClass:
         self.uuid = data[4:40]
         self.base_iv = data[40:56]
 
+        if self.verbose:
+            sys.stderr.write(
+                'dtar header: magic: "%s", uuid: "%s", base_iv: "%s"\n'
+                % (data[:4], self.uuid, repr(self.base_iv)))
+
     def read_next_payload(self):
         '''Read the next block of payload.
 
         See :py:func:`EncryptIndexClass::format_header` for the
         layout of the header.'''
 
+        if self.verbose:
+            sys.stderr.write('read_next_payload()\n')
+
         data = self.fp.read(4 + 16 + 64 + 4)
+        if not data:
+            raise EOFError()
 
         magic = data[:4]
+        if self.verbose:
+            sys.stderr.write('Payload magic: %s\n' % repr(magic))
+
         if magic not in ['dtbz', 'dtb1']:
             raise ValueError('Invalid payload, did not find magic number')
         crypto_iv = data[4:20]
         block_hmac = data[20:84]
         payload_length = struct.unpack('!L', data[84:88])[0]
 
+        if self.verbose:
+            sys.stderr.write(
+                'Read header: crypto_iv: "%s", block_hmac: "%s", '
+                'payload_length: %d\n'
+                % (repr(crypto_iv), repr(block_hmac), payload_length))
+
         payload = self.fp.read(payload_length)
         crypto = AES.new(self.blockstore.aes_key, AES.MODE_CBC, crypto_iv)
         payload = crypto.decrypt(payload)
         if magic.endswith('z'):
             payload = zlib.decompress(payload)
+
+        if self.verbose:
+            sys.stderr.write('Decrypted length: %d\n' % len(payload))
 
         mac512 = HMAC.new(self.blockstore.aes_key, digestmod=SHA512)
         mac512.update(payload)
@@ -519,7 +589,7 @@ class DecryptIndexClass:
 
 
 def filter_tar_file_body(
-        input_file, input_length, output_file, block_storage):
+        input_file, input_length, output_file, block_storage, verbose=False):
     '''Format a header for each block of payload.
 
     :param input_file: Where to read the source file data.
@@ -663,12 +733,17 @@ def filter_tar(
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
-    encrypted_output = EncryptIndexClass(output_file, block_storage)
+    encrypted_output = EncryptIndexClass(output_file, block_storage, verbose)
 
     while True:
+        if verbose:
+            sys.stderr.write('filter_tar loop\n')
+
         try:
             tar_header = tarfp.TarInfo().fromfileobj(input_file)
         except tarfp.EOFHeaderError:
+            if verbose:
+                sys.stderr.write('Got tar EOF\n')
             break
 
         if verbose:
@@ -692,6 +767,7 @@ def filter_tar(
         read_padding(input_file, input_length)
         write_padding(encrypted_output, tar_header.size)
 
+    encrypted_output.close()
     if block_storage.have_active_brick():
         block_storage.close_brick()
 
@@ -746,6 +822,47 @@ def list_dtar(
                 block_size = min(bytes_to_read, 102400)
                 bytes_to_read -= block_size
                 encrypted_input.read(block_size)
+
+
+def decrypt_dtar(
+        input_file, output_file, block_storage_path, password,
+        blocks_size=default_blocks_size,
+        brick_size_max=default_brick_size_max,
+        verbose=False):
+    '''Read a dtar and list the file entries that it contains.
+
+    :param input_file: Where to read encrypted dtar file from.
+    :type input_file: file
+    :param output_file: Where to write the contents list.
+    :type output_file: file
+    :param block_storage_path: Directory to store detached blocks into.
+    :type block_storage_path: str
+    :param password: String used to encrypt data.  This can be a password
+            or passphrase, or it can be a binary key.  Either way, it is
+            passed through a KDF.
+    :type password: str
+    :param blocks_size: Size that input files are broken down into.
+            Smaller sizes result in better deduplication, but at the cost
+            of more storage and encryption overhead and more random IOPS
+            for creating and reading.
+    :type blocks_size: int
+    :param brick_size_max: The blocks are collected into bricks of this
+            size.  The bricks can be slightly larger than this, by up to
+            `blocks_size` bytes plus the lock header size.
+    :type brick_size_max: int
+    :param verbose: (False) Display operation information to stderr if True.
+    :type verbose: bool
+    '''
+    block_storage = BlockStorageDirectory(
+        block_storage_path, password, blocks_size, brick_size_max)
+
+    encrypted_input = DecryptIndexClass(input_file, block_storage, verbose)
+
+    while True:
+        data = encrypted_input.read(10240)
+        if not data:
+            break
+        output_file.write(data)
 
 
 def load_config_file(filename):
@@ -814,6 +931,18 @@ def parse_args():
         help='Create a dtar file, reading the original tar '
         'file from stdin and writing the dtar index to stdout.')
     command_parser.set_defaults(command='create')
+    command_parser.add_argument(
+        '-i', '--in', dest='in_file',
+        help='File to read original tar file data from (default=stdin)')
+    command_parser.add_argument(
+        '-o', '--out', dest='out_file',
+        help='File to write dtar output to (default=stdout)')
+
+    command_parser = subparsers.add_parser(
+        'decrypt',
+        help='Take a dtar file and do a simple decryption of it.'
+        '  This is mostly for debugging.')
+    command_parser.set_defaults(command='decrypt')
     command_parser.add_argument(
         '-i', '--in', dest='in_file',
         help='File to read original tar file data from (default=stdin)')
