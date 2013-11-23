@@ -10,55 +10,54 @@
 import unittest
 
 import os
+import tempfile
 import sys
 sys.path.append('..')
 import dtar
 
 
 class test_DTarBasic(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp(prefix='dtar_test')
+        self.blockstore_directory = os.path.join(self.temp_dir, 'blockstore')
+        self.test_file = os.path.join(self.temp_dir, 'file1.tar')
+        self.test_file2 = os.path.join(self.temp_dir, 'file2.tar')
+        self.test_filed = os.path.join(self.temp_dir, 'file.dtar')
+        self.dev_null = open('/dev/null', 'w')
+
+    def tearDown(self):
+        os.system('rm -rf "%s"' % self.temp_dir)
+
     def test_TarPipeEmpty(self):
-        testdir = '/tmp/testdtarbs'
-        os.system('rm -rf "%s"' % testdir)
-
-        testfile = '/tmp/testtarfile1.tar'
-        testfile2 = '/tmp/testtarfile2.tar'
-        testfiled = '/tmp/testdtarfile.tar'
-        os.system('rm -rf "%s"' % testfile)
-        os.system('rm -rf "%s"' % testfile2)
-        os.system('rm -rf "%s"' % testfiled)
-
-        os.system('tar cfT "%s" /dev/null' % testfile)
-        with open(testfile, 'rb') as in_fp, open(testfiled, 'wb') as out_fp:
+        os.system('tar cfT "%s" /dev/null' % self.test_file)
+        with open(self.test_file, 'rb') as in_fp, open(
+                self.test_filed, 'wb') as out_fp:
             dtar.filter_tar(
-                in_fp, out_fp, testdir, 'test_password', verbose=False)
+                in_fp, out_fp, self.blockstore_directory, 'test_password',
+                verbose=False)
 
         with self.assertRaises(dtar.InvalidDTARInputError):
-            with open(testfiled, 'rb') as in_fp:
+            with open(self.test_filed, 'rb') as in_fp:
                 dtar.list_dtar(
-                    in_fp, sys.stdout, testdir, 'bad_password', verbose=False)
+                    in_fp, self.dev_null, self.blockstore_directory,
+                    'bad_password', verbose=False)
 
-        with open(testfiled, 'rb') as in_fp:
+        with open(self.test_filed, 'rb') as in_fp:
             dtar.list_dtar(
-                in_fp, sys.stdout, testdir, 'test_password', verbose=False)
+                in_fp, self.dev_null, self.blockstore_directory,
+                'test_password', verbose=False)
 
     def test_TarSimple(self):
-        testdir = '/tmp/testdtarbs'
-        os.system('rm -rf "%s"' % testdir)
-
-        testfile = '/tmp/testtarfile1.tar'
-        testfile2 = '/tmp/testtarfile2.tar'
-        testfiled = '/tmp/testdtarfile.tar'
-        os.system('rm -rf "%s"' % testfile)
-        os.system('rm -rf "%s"' % testfile2)
-        os.system('rm -rf "%s"' % testfiled)
-
-        os.system('tar cf "%s" .' % testfile)
-        with open(testfile, 'rb') as in_fp, open(testfiled, 'wb') as out_fp:
+        os.system('tar cf "%s" .' % self.test_file)
+        with open(self.test_file, 'rb') as in_fp, open(
+                self.test_filed, 'wb') as out_fp:
             dtar.filter_tar(
-                in_fp, out_fp, testdir, 'test_password', verbose=False)
+                in_fp, out_fp, self.blockstore_directory, 'test_password',
+                verbose=False)
 
-        with open(testfiled, 'rb') as in_fp:
+        with open(self.test_filed, 'rb') as in_fp:
             dtar.list_dtar(
-                in_fp, sys.stdout, testdir, 'test_password', verbose=False)
+                in_fp, self.dev_null, self.blockstore_directory,
+                'test_password', verbose=False)
 
 unittest.main()
