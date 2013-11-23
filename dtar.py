@@ -623,6 +623,8 @@ def filter_tar_file_body(
     :param block_storage: Where to look-up duplicates and store block data.
     :type block_storage: BlockStorage
     '''
+    output_file.write(struct.pack('!Q', input_length))
+
     file_hash = SHA512.new()
     while input_length:
         data = input_file.read(min(block_storage.blocks_size, input_length))
@@ -667,7 +669,7 @@ def checksum_body_length(tar_header, blocks_size):
     if block_leftover > 0:
         blocks += 1  # partial final block
     blocks += 1  # full file checksum
-    return 68 * blocks
+    return struct.calcsize('!Q') + (68 * blocks)
 
 
 def size_of_padding(exiting_length):
@@ -792,6 +794,78 @@ def filter_tar(
     encrypted_output.close()
     if block_storage.have_active_brick():
         block_storage.close_brick()
+
+
+def filter_dtar(
+        input_file, output_file, block_storage_path, password,
+        blocks_size=default_blocks_size,
+        brick_size_max=default_brick_size_max,
+        verbose=False):
+    '''Read a DTAR, decrypt and re-attach the payload blocks to it.
+
+    This reconstructs the original tar file, putitng the data blocks back in
+    place after decrypting the DTAR.
+
+    :param input_file: Where to read tar file from.
+    :type input_file: file
+    :param output_file: Where to write the encrypted DTAR file.
+    :type output_file: file
+    :param block_storage_path: Directory to store detached blocks into.
+    :type block_storage_path: str
+    :param password: String used to encrypt data.  This can be a password
+            or passphrase, or it can be a binary key.  Either way, it is
+            passed through a KDF.
+    :type password: str
+    :param blocks_size: Size that input files are broken down into.
+            Smaller sizes result in better deduplication, but at the cost
+            of more storage and encryption overhead and more random IOPS
+            for creating and reading.
+    :type blocks_size: int
+    :param brick_size_max: The blocks are collected into bricks of this
+            size.  The bricks can be slightly larger than this, by up to
+            `blocks_size` bytes plus the lock header size.
+    :type brick_size_max: int
+    :param verbose: (False) Display operation information to stderr if True.
+    :type verbose: bool
+    '''
+    block_storage = BlockStorageDirectory(
+        block_storage_path, password, blocks_size, brick_size_max)
+
+    encrypted_input = DecryptIndexClass(input_file, block_storage, verbose)
+
+    while True:
+        if verbose:
+            sys.stderr.write('filter_dtar loop\n')
+
+        try:
+            tar_header = tarfp.TarInfo().fromfileobj(encrypted_input)
+        except tarfp.EOFHeaderError:
+            if verbose:
+                sys.stderr.write('Got tar EOF\n')
+            break
+
+        if verbose:
+            filetype = tar_header_to_filetype(tar_header)
+            sys.stderr.write('%s %-10s %s\n' % (
+                filetype, tar_header.size, tar_header.path))
+
+        if tar_header.size == 0:
+            output_file.write(tar_header.tobuf())
+            continue
+
+        input_length = tar_header.size
+        tar_header.size = checksum_body_length(
+            tar_header, block_storage.blocks_size)
+        output_file.write(tar_header.tobuf())
+
+        raise NotImplementedError()
+        filter_tar_file_body(
+            input_file, input_length, encrypted_output, block_storage)
+
+        read_padding(input_file, input_length)
+        write_padding(output_file, tar_header.size)
+
+    output_file.flush()
 
 
 def list_dtar(
@@ -989,6 +1063,12 @@ def parse_args():
         help='Reconstruct the original tar file, given a dtar '
         'index the results are written to stdout.')
     command_parser.set_defaults(command='extract')
+    command_parser.add_argument(
+        '-i', '--in', dest='in_file',
+        help='File to read original tar file data from (default=stdin)')
+    command_parser.add_argument(
+        '-o', '--out', dest='out_file',
+        help='File to write dtar output to (default=stdout)')
 
     args = parser.parse_args()
 
