@@ -12,14 +12,17 @@ $10/TB/month.
 Status
 ------
 
-This is a fairly early set of code, I just started writing it Nov 10.  It
-currently has a proof of concept local storage, and *no* recovery program or
-upload to S3.  Upload to S3/Glacier can be done using "s3cmd sync" at the
-moment.
+This code has done a full round-trip that had the extracted files from the
+reconstituted tar file match the checksums of the original tar file,
+though the tar files had some slight differences that I need to hand check
+to ensure they are ok.  I may be missing some padding, but I wouldn't have
+expected tar to extract properly in that case.
 
-However, it's all pretty simple code so I expect it should come quickly.
+More testing is needed, but I'm expecting it to be fairly close to usable
+with the final file formats in place.
 
-Currently it is just a "proof of concept".
+Integrated upload to S3/Glacier is not yet started, but can be run as an
+external process with "s3cmd sync".
 
 Features
 --------
