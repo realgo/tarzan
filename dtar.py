@@ -27,6 +27,12 @@ default_blocks_size = 30000
 default_brick_size_max = 30 * 1000 * 1000
 
 
+class InvalidDTARInputError(Exception):
+    '''General error with encrypted input.
+    '''
+    pass
+
+
 def make_seq_filename(sequence_id):
     '''Convert the sequence ID into a directory+file-name.
 
@@ -573,7 +579,11 @@ class DecryptIndexClass:
         crypto = AES.new(self.blockstore.aes_key, AES.MODE_CBC, crypto_iv)
         payload = crypto.decrypt(payload)
         if magic.endswith('z'):
-            payload = zlib.decompress(payload)
+            try:
+                payload = zlib.decompress(payload)
+            except zlib.error:
+                raise InvalidDTARInputError(
+                    'Unable to decompress payload (password problem?)')
 
         if self.verbose:
             sys.stderr.write('Decrypted length: %d\n' % len(payload))
@@ -583,7 +593,8 @@ class DecryptIndexClass:
         resulting_hmac = mac512.digest()
 
         if resulting_hmac != block_hmac:
-            raise ValueError('Block HMAC did not match decrypted data')
+            raise InvalidDTARInputError(
+                'Block HMAC did not match decrypted data')
 
         self.buffer += payload
 

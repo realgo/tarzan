@@ -32,7 +32,7 @@ class test_DTarBasic(unittest.TestCase):
             dtar.filter_tar(
                 in_fp, out_fp, testdir, 'test_password', verbose=False)
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(dtar.InvalidDTARInputError):
             with open(testfiled, 'rb') as in_fp:
                 dtar.list_dtar(
                     in_fp, sys.stdout, testdir, 'bad_password', verbose=False)
