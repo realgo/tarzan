@@ -360,7 +360,8 @@ class EncryptIndexClass:
         return bytes(
             'dti1' + self.blockstore.uuid) + self.sequential_iv.base_iv
 
-    def format_header(self, compressed, crypto_iv, block_hmac, length):
+    def format_payload_header(
+            self, compressed, crypto_iv, block_hmac, length):
         '''Format a header for each block of payload.
 
         :param compressed: If true, the block is compressed.
@@ -426,16 +427,12 @@ class EncryptIndexClass:
         crypto = AES.new(self.blockstore.aes_key, AES.MODE_CBC, crypto_iv)
         block_to_write = crypto.encrypt(block_to_write)
 
-        header = self.format_header(
+        header = self.format_payload_header(
             compressed, crypto_iv, hmac_digest, len(block_to_write))
 
         self.fp.write(header)
         self.fp.write(block_to_write)
         self.fp.flush()
-
-        if is_last_block:
-            self.fp.close()
-            self.fp = None
 
     def beginning_of_file(self):
         '''Notify us that a new file header is starting.
@@ -488,6 +485,16 @@ class EncryptIndexClass:
             self.flush()
         self.flush()
 
+        crypto_iv = self.sequential_iv.get_next_iv()
+        mac512 = HMAC.new(self.blockstore.aes_key, digestmod=SHA512)
+        hmac_digest = mac512.digest()
+        header = self.format_payload_header(
+            False, crypto_iv, hmac_digest, 0)
+        self.fp.write(header)
+
+        self.fp.close()
+        self.fp = None
+
 
 class DecryptIndexClass:
     '''Decrypt the dtar format file.
@@ -509,6 +516,7 @@ class DecryptIndexClass:
         self.blockstore = blockstore
         self.buffer = ''
         self.verbose = verbose
+        self.eof = False
         self.read_index_header()
 
     def read(self, length):
@@ -523,7 +531,7 @@ class DecryptIndexClass:
                 'read(length=%d), existing buffer: %d\n'
                 % (length, len(self.buffer)))
 
-        while length > len(self.buffer):
+        while length > len(self.buffer) and not self.eof:
             self.read_next_payload()
 
         data = self.buffer[:length]
@@ -549,7 +557,7 @@ class DecryptIndexClass:
     def read_next_payload(self):
         '''Read the next block of payload.
 
-        See :py:func:`EncryptIndexClass::format_header` for the
+        See :py:func:`EncryptIndexClass::format_payload_header` for the
         layout of the header.'''
 
         if self.verbose:
@@ -595,6 +603,9 @@ class DecryptIndexClass:
         if resulting_hmac != block_hmac:
             raise InvalidDTARInputError(
                 'Block HMAC did not match decrypted data')
+
+        if payload_length == 0:
+            self.eof = True
 
         self.buffer += payload
 
