@@ -33,6 +33,14 @@ class test_DTarBasic(unittest.TestCase):
     def tearDown(self):
         os.system('rm -rf "%s"' % self.temp_dir)
 
+    def make_big_dir(self):
+        self.big_dir = os.path.join(self.temp_dir, 'big_dir')
+        os.mkdir(self.big_dir)
+        for file_id in range(200):
+            file_name = os.path.join(self.big_dir, str(file_id))
+            with open(file_name, 'w') as fp:
+                fp.write(str(file_id) * file_id)
+
     def test_TarPipeEmpty(self):
         os.system('tar cfT "%s" /dev/null' % self.test_file)
         with open(self.test_file, 'rb') as in_fp, open(
@@ -64,6 +72,24 @@ class test_DTarBasic(unittest.TestCase):
                 in_fp, out_fp, self.blockstore_directory, 'test_password',
                 verbose=verbose)
 
+        self.basic_dtar_comparison()
+
+    def test_TarBig(self):
+        self.make_big_dir()
+
+        os.system('tar cf "%s" -C "%s" .' % (self.test_file, self.big_dir))
+        with open(self.test_file, 'rb') as in_fp, open(
+                self.test_filed, 'wb') as out_fp:
+            dtar.filter_tar(
+                in_fp, out_fp, self.blockstore_directory, 'test_password',
+                verbose=verbose)
+
+        self.basic_dtar_comparison()
+
+    def basic_dtar_comparison(self):
+        with open(self.test_file, 'rb') as fp:
+            source_file_list = sorted(tarfile.open(fileobj=fp).getnames())
+
         output_file = StringIO()
         with open(self.test_filed, 'rb') as in_fp:
             dtar.list_dtar(
@@ -73,7 +99,7 @@ class test_DTarBasic(unittest.TestCase):
         output = output_file.getvalue()
         self.assertEqual(
             sorted([x.split()[-1] for x in output.split('\n') if x]),
-            ['.', './Makefile', './test_basic.py', './test_functional.py'])
+            source_file_list)
 
         output_file = StringIO()
         with open(self.test_filed, 'rb') as in_fp:
@@ -86,7 +112,7 @@ class test_DTarBasic(unittest.TestCase):
         tf = tarfile.open(fileobj=output_file)
         self.assertEqual(
             sorted(tf.getnames()),
-            ['.', './Makefile', './test_basic.py', './test_functional.py'])
+            source_file_list)
 
     def compare_source_and_decrypted(self):
         '''Verify that the source and decrypted tar are the same.
