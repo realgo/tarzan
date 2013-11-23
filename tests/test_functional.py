@@ -13,6 +13,7 @@ import os
 import tempfile
 from StringIO import StringIO
 import md5
+import tarfile
 import sys
 sys.path.append('..')
 import dtar
@@ -53,21 +54,7 @@ class test_DTarBasic(unittest.TestCase):
                 'test_password', verbose=verbose)
         self.assertEqual(output_file.getvalue(), '')
 
-        with open(self.test_file, 'rb') as fp:
-            sum = md5.new()
-            sum.update(fp.read())
-            orig_sum = sum.hexdigest()
-
-        output_file = StringIO()
-        with open(self.test_filed, 'rb') as in_fp:
-            dtar.decrypt_dtar(
-                in_fp, output_file, self.blockstore_directory,
-                'test_password', verbose=verbose)
-        sum = md5.new()
-        sum.update(output_file.getvalue())
-        result_sum = sum.hexdigest()
-
-        self.assertEqual(orig_sum, result_sum)
+        self.compare_source_and_decrypted()
 
     def test_TarSimple(self):
         os.system('tar cf "%s" .' % self.test_file)
@@ -87,5 +74,35 @@ class test_DTarBasic(unittest.TestCase):
         self.assertEqual(
             sorted([x.split()[-1] for x in output.split('\n') if x]),
             ['.', './Makefile', './test_basic.py', './test_functional.py'])
+
+        output_file = StringIO()
+        with open(self.test_filed, 'rb') as in_fp:
+            dtar.decrypt_dtar(
+                in_fp, output_file, self.blockstore_directory,
+                'test_password', verbose=verbose)
+
+        #  decrypted dtar has appropriate file names (payload still detached)
+        output_file.seek(0)
+        tf = tarfile.open(fileobj=output_file)
+        self.assertEqual(
+            sorted(tf.getnames()),
+            ['.', './Makefile', './test_basic.py', './test_functional.py'])
+
+    def compare_source_and_decrypted(self):
+        with open(self.test_file, 'rb') as fp:
+            sum = md5.new()
+            sum.update(fp.read())
+            orig_sum = sum.hexdigest()
+
+        output_file = StringIO()
+        with open(self.test_filed, 'rb') as in_fp:
+            dtar.decrypt_dtar(
+                in_fp, output_file, self.blockstore_directory,
+                'test_password', verbose=verbose)
+        sum = md5.new()
+        sum.update(output_file.getvalue())
+        result_sum = sum.hexdigest()
+
+        self.assertEqual(orig_sum, result_sum)
 
 unittest.main()
