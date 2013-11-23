@@ -89,6 +89,11 @@ class test_DTarBasic(unittest.TestCase):
             ['.', './Makefile', './test_basic.py', './test_functional.py'])
 
     def compare_source_and_decrypted(self):
+        '''Verify that the source and decrypted tar are the same.
+
+        This only works for tar files that have no payload blocks (either
+        empty or only containing directories, etc...).
+        '''
         with open(self.test_file, 'rb') as fp:
             sum = md5.new()
             sum.update(fp.read())
