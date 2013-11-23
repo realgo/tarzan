@@ -698,9 +698,12 @@ def filter_tar_file_body(
 
         mac512 = HMAC.new(block_storage.aes_key, digestmod=SHA512)
         mac512.update(data)
+        file_hash.update(data)
         hmac_digest = mac512.digest()
 
         hashkey = block_storage.gen_hashkey(data, hmac_digest)
+        output_file.write(hashkey)
+
         if hashkey not in block_storage.blocks_map:
             if not block_storage.have_active_brick() or (
                     block_storage.brick_size
@@ -709,10 +712,6 @@ def filter_tar_file_body(
                 block_storage.new_brick()
             block_storage.store_block(
                 data, hashkey=hashkey, hmac_digest=hmac_digest)
-
-        file_hash.update(data)
-
-        output_file.write(hashkey)
 
     #  whole file hash
     hash_key = file_hash.digest() + struct.pack('!L', 0)
@@ -733,34 +732,20 @@ def filter_dtar_file_body(
     :type block_storage: BlockStorage
     '''
     file_hash = SHA512.new()
-    while input_length:
+    while True:
         hashkey = input_file.read(block_storage.hashkey_length)
         input_length -= len(hashkey)
 
+        #  0-length terminating block
+        payload_length = struct.unpack('!L', hashkey[-4:])[0]
+        if payload_length == 0:
+            if hashkey[:64] != file_hash.digest():
+                raise ValueError('Reconstituted file digest mismatch')
+            break
+
         payload = block_storage.retrieve_block(hashkey)
-
-        raise NotImplementedError()
-        mac512 = HMAC.new(block_storage.aes_key, digestmod=SHA512)
-        mac512.update(data)
-        hmac_digest = mac512.digest()
-
-        hashkey = block_storage.gen_hashkey(data, hmac_digest)
-        if hashkey not in block_storage.blocks_map:
-            if not block_storage.have_active_brick() or (
-                    block_storage.brick_size
-                    and block_storage.brick_size
-                    > block_storage.brick_size_max):
-                block_storage.new_brick()
-            block_storage.store_block(
-                data, hashkey=hashkey, hmac_digest=hmac_digest)
-
-        file_hash.update(data)
-
-        output_file.write(hashkey)
-
-    #  whole file hash
-    hash_key = file_hash.digest() + struct.pack('!L', 0)
-    output_file.write(hash_key)
+        file_hash.update(payload)
+        output_file.write(payload)
 
 
 def checksum_body_length(tar_header, blocks_size):
