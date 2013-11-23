@@ -20,6 +20,7 @@ import bsddb
 import uuid
 import argparse
 import ConfigParser
+import collections
 
 import tarfp
 
@@ -41,6 +42,9 @@ def make_seq_filename(sequence_id):
     in it, and files under it start off with a 1-byte filename, expanding
     to 2 when `sequence_id` is more than 1296, and 3 when`sequence_id`
     is more than 46656, etc...
+
+    :param sequence_id: The numeric sequence identifier of the brick.
+    :type sequence_id: int
     '''
     keyspace = '0123456789abcdefghijklmnopqrstuvwxyz'
     top_level_count = len(keyspace) ** 2
@@ -59,6 +63,9 @@ def make_seq_filename(sequence_id):
     filename = get_key(keyspace, int(sequence_id / top_level_count))
 
     return os.path.join(top_level_name, filename)
+
+BrickFileInfo = collections.namedtuple(
+    'BrickFileInfo', ['directory', 'brick', 'toc'])
 
 
 class SequentialIV:
@@ -202,6 +209,34 @@ class BlockStorageDirectory:
 
         return hash.digest() + struct.pack('!L', len(block))
 
+    hashkey_length = 64 + struct.calcsize('!L')
+
+    def get_brick_file(self, sequence_id):
+        '''Format the paths of brick components.
+
+        Given a sequene, this returns a namedtuple that identifies the brick
+        with these attributes (in tuple order):
+
+            - directory -- The location of the directory the brick is in.
+            - brick -- Full path of the brick file.
+            - toc -- Full path of the TOC file.
+
+        :param sequence_id: The numeric sequence identifier of the brick.
+        :type sequence_id: int
+        :returns: :py:class:`BrickFileInfo` -- Namedtuple of brick paths.
+        '''
+        brick_info = os.path.split(make_seq_filename(sequence_id))
+
+        brick_directory = os.path.join(self.path, 'b-' + brick_info[0])
+        if not os.path.exists(brick_directory):
+            os.mkdir(brick_directory)
+        brick_filename = os.path.join(
+            brick_directory, 'dt_d-%s-%s' % brick_info)
+        toc_filename = os.path.join(
+            brick_directory, 'dt_t-%s-%s' % brick_info)
+
+        return BrickFileInfo(brick_directory, brick_filename, toc_filename)
+
     def encode_block(self, block, hashkey, hmac):
         '''Given a block, encode it in the block-file format.
 
@@ -215,8 +250,8 @@ class BlockStorageDirectory:
             hashkey (64 bytes SHA512 hash of block and HMAC,
                     4 bytes raw length)
             hmac (64 bytes SHA512 data signature)
-        Payload format:
             crypto IV: 16 random bytes
+        Payload format:
             block: Encrypted and possibly encoded
 
         :param block: The block of data.
@@ -239,8 +274,10 @@ class BlockStorageDirectory:
             block += Random.new().read(16 - padding_remainder)
         block = crypto.encrypt(block)
 
-        header = (block_magic + struct.pack('!L', len(block)) + hashkey + hmac)
-        return header, crypto_iv + block
+        header = (
+            block_magic + struct.pack('!L', len(block)) + hashkey
+            + hmac + crypto_iv)
+        return header, block
 
     def new_brick(self):
         '''Get a new brick for writing to.
@@ -254,18 +291,9 @@ class BlockStorageDirectory:
         self.next_brick += 1
         self.save()
 
-        brick_info = os.path.split(make_seq_filename(self.current_brick))
-
-        brick_directory = os.path.join(self.path, 'b-' + brick_info[0])
-        if not os.path.exists(brick_directory):
-            os.mkdir(brick_directory)
-        brick_filename = os.path.join(
-            brick_directory, 'dt_d-%s-%s' % brick_info)
-        toc_filename = os.path.join(
-            brick_directory, 'dt_t-%s-%s' % brick_info)
-
-        self.brick_file = open(brick_filename, 'a')
-        self.toc_file = open(toc_filename, 'a')
+        brick_info = self.get_brick_file(self.current_brick)
+        self.brick_file = open(brick_info.brick, 'a')
+        self.toc_file = open(brick_info.toc, 'a')
         self.brick_size = 0
 
     def close_brick(self):
@@ -313,6 +341,40 @@ class BlockStorageDirectory:
         self.brick_file.write(header)
         self.brick_file.write(payload)
         self.brick_size += len(header) + len(payload)
+
+    def retrieve_block(self, hashkey):
+        '''Grab a block from storage.
+
+        :param hashkey: (None) If specified, the hashkey for the block.
+        :type hashkey: str
+        :returns: str -- Block payload.
+        '''
+        location = self.blocks_map[hashkey]
+        brick_id, offset = map(int, location.split(','))
+
+        brick_info = self.get_brick_file(brick_id)
+
+        print brick_id, offset, brick_info
+        with open(brick_info.brick, 'rb') as fp:
+            fp.seek(offset)
+            header = fp.read(4 + 4 + 68 + 64 + 16)
+
+            header_magic = header[:4]
+            header_payload_length = struct.unpack('!L', header[4:8])[0]
+            header_hashkey = header[8:76]
+            header_hmac = header[76:140]
+            header_crypto_iv = header[140:]
+
+            if header_magic not in ['dt1z', 'dt1n']:
+                raise ValueError('Invalid hashkey in read block')
+            if hashkey != header_hashkey:
+                raise ValueError('Hash key in block does not match expected.')
+
+            payload = decode_payload(
+                fp.read(header_payload_length), self.aes_key,
+                header_crypto_iv, header_hmac, header_magic)
+
+            return payload
 
 
 class EncryptIndexClass:
@@ -583,36 +645,40 @@ class DecryptIndexClass:
                 'payload_length: %d\n'
                 % (repr(crypto_iv), repr(block_hmac), payload_length))
 
-        payload = self.fp.read(payload_length)
-        crypto = AES.new(self.blockstore.aes_key, AES.MODE_CBC, crypto_iv)
-        payload = crypto.decrypt(payload)
-        if magic.endswith('z'):
-            try:
-                payload = zlib.decompress(payload)
-            except zlib.error:
-                raise InvalidDTARInputError(
-                    'Unable to decompress payload (password problem?)')
+        payload = decode_payload(
+            self.fp.read(payload_length),
+            self.blockstore.aes_key, crypto_iv, block_hmac, magic)
 
-        if self.verbose:
-            sys.stderr.write('Decrypted length: %d\n' % len(payload))
-
-        mac512 = HMAC.new(self.blockstore.aes_key, digestmod=SHA512)
-        mac512.update(payload)
-        resulting_hmac = mac512.digest()
-
-        if resulting_hmac != block_hmac:
-            raise InvalidDTARInputError(
-                'Block HMAC did not match decrypted data')
-
-        if payload_length == 0:
+        if len(payload) == 0:
             self.eof = True
 
         self.buffer += payload
 
 
+def decode_payload(payload, aes_key, crypto_iv, block_hmac, magic):
+    crypto = AES.new(aes_key, AES.MODE_CBC, crypto_iv)
+    payload = crypto.decrypt(payload)
+    if magic.endswith('z'):
+        try:
+            payload = zlib.decompress(payload)
+        except zlib.error:
+            raise InvalidDTARInputError(
+                'Unable to decompress payload (password problem?)')
+
+    mac512 = HMAC.new(aes_key, digestmod=SHA512)
+    mac512.update(payload)
+    resulting_hmac = mac512.digest()
+
+    if resulting_hmac != block_hmac:
+        raise InvalidDTARInputError(
+            'Block HMAC did not match decrypted data')
+
+    return payload
+
+
 def filter_tar_file_body(
         input_file, input_length, output_file, block_storage, verbose=False):
-    '''Format a header for each block of payload.
+    '''Convert payload into detached blocks.
 
     :param input_file: Where to read the source file data.
     :type input_file: file
@@ -630,6 +696,50 @@ def filter_tar_file_body(
         data = input_file.read(min(block_storage.blocks_size, input_length))
         input_length -= len(data)
 
+        mac512 = HMAC.new(block_storage.aes_key, digestmod=SHA512)
+        mac512.update(data)
+        hmac_digest = mac512.digest()
+
+        hashkey = block_storage.gen_hashkey(data, hmac_digest)
+        if hashkey not in block_storage.blocks_map:
+            if not block_storage.have_active_brick() or (
+                    block_storage.brick_size
+                    and block_storage.brick_size
+                    > block_storage.brick_size_max):
+                block_storage.new_brick()
+            block_storage.store_block(
+                data, hashkey=hashkey, hmac_digest=hmac_digest)
+
+        file_hash.update(data)
+
+        output_file.write(hashkey)
+
+    #  whole file hash
+    hash_key = file_hash.digest() + struct.pack('!L', 0)
+    output_file.write(hash_key)
+
+
+def filter_dtar_file_body(
+        input_file, input_length, output_file, block_storage, verbose=False):
+    '''Reconstitute payload from detached blocks.
+
+    :param input_file: Where to read the detached file data.
+    :type input_file: file
+    :param input_length: Detached file data in bytes.
+    :type input_length: int
+    :param output_file: Where to write the reconstituted block output.
+    :type output_file: file
+    :param block_storage: Where to lookup blocks.
+    :type block_storage: BlockStorage
+    '''
+    file_hash = SHA512.new()
+    while input_length:
+        hashkey = input_file.read(block_storage.hashkey_length)
+        input_length -= len(hashkey)
+
+        payload = block_storage.retrieve_block(hashkey)
+
+        raise NotImplementedError()
         mac512 = HMAC.new(block_storage.aes_key, digestmod=SHA512)
         mac512.update(data)
         hmac_digest = mac512.digest()
@@ -757,7 +867,7 @@ def filter_tar(
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
-    encrypted_output = EncryptIndexClass(output_file, block_storage, verbose)
+    output_file = EncryptIndexClass(output_file, block_storage, verbose)
 
     while True:
         if verbose:
@@ -775,23 +885,23 @@ def filter_tar(
             sys.stderr.write('%s %-10s %s\n' % (
                 filetype, tar_header.size, tar_header.path))
 
-        encrypted_output.beginning_of_file()
+        output_file.beginning_of_file()
         if tar_header.size == 0:
-            encrypted_output.write(tar_header.tobuf())
+            output_file.write(tar_header.tobuf())
             continue
 
         input_length = tar_header.size
         tar_header.size = checksum_body_length(
             tar_header, block_storage.blocks_size)
-        encrypted_output.write(tar_header.tobuf())
+        output_file.write(tar_header.tobuf())
 
         filter_tar_file_body(
-            input_file, input_length, encrypted_output, block_storage)
+            input_file, input_length, output_file, block_storage)
 
         read_padding(input_file, input_length)
-        write_padding(encrypted_output, tar_header.size)
+        write_padding(output_file, tar_header.size)
 
-    encrypted_output.close()
+    output_file.close()
     if block_storage.have_active_brick():
         block_storage.close_brick()
 
@@ -831,14 +941,14 @@ def filter_dtar(
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
-    encrypted_input = DecryptIndexClass(input_file, block_storage, verbose)
+    input_file = DecryptIndexClass(input_file, block_storage, verbose)
 
     while True:
         if verbose:
             sys.stderr.write('filter_dtar loop\n')
 
         try:
-            tar_header = tarfp.TarInfo().fromfileobj(encrypted_input)
+            tar_header = tarfp.TarInfo().fromfileobj(input_file)
         except tarfp.EOFHeaderError:
             if verbose:
                 sys.stderr.write('Got tar EOF\n')
@@ -853,14 +963,14 @@ def filter_dtar(
             output_file.write(tar_header.tobuf())
             continue
 
+        original_length = struct.unpack('!Q', input_file.read(8))[0]
+
         input_length = tar_header.size
-        tar_header.size = checksum_body_length(
-            tar_header, block_storage.blocks_size)
+        tar_header.size = original_length
         output_file.write(tar_header.tobuf())
 
-        raise NotImplementedError()
-        filter_tar_file_body(
-            input_file, input_length, encrypted_output, block_storage)
+        filter_dtar_file_body(
+            input_file, input_length, output_file, block_storage)
 
         read_padding(input_file, input_length)
         write_padding(output_file, tar_header.size)
@@ -900,11 +1010,11 @@ def list_dtar(
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
-    encrypted_input = DecryptIndexClass(input_file, block_storage)
+    input_file = DecryptIndexClass(input_file, block_storage)
 
     while True:
         try:
-            tar_header = tarfp.TarInfo().fromfileobj(encrypted_input)
+            tar_header = tarfp.TarInfo().fromfileobj(input_file)
         except tarfp.EOFHeaderError:
             break
 
@@ -917,7 +1027,7 @@ def list_dtar(
             while bytes_to_read:
                 block_size = min(bytes_to_read, 102400)
                 bytes_to_read -= block_size
-                encrypted_input.read(block_size)
+                input_file.read(block_size)
 
 
 def decrypt_dtar(
@@ -952,10 +1062,10 @@ def decrypt_dtar(
     block_storage = BlockStorageDirectory(
         block_storage_path, password, blocks_size, brick_size_max)
 
-    encrypted_input = DecryptIndexClass(input_file, block_storage, verbose)
+    input_file = DecryptIndexClass(input_file, block_storage, verbose)
 
     while True:
-        data = encrypted_input.read(10240)
+        data = input_file.read(10240)
         if not data:
             break
         output_file.write(data)
