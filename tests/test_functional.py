@@ -131,4 +131,26 @@ class test_DTarBasic(unittest.TestCase):
 
         self.assertEqual(orig_sum, result_sum)
 
+    def test_LongFilenames(self):
+        self.make_big_dir()
+        long_filename = '1234567890' * 23
+        self.long_dir = os.path.join(self.temp_dir, 'long_dir')
+        os.mkdir(self.long_dir)
+
+        dest_dir = self.long_dir
+        for x in range(10):
+            dest_dir = os.path.join(dest_dir, long_filename)
+            os.mkdir(dest_dir)
+        with open(os.path.join(dest_dir, long_filename), 'w') as fp:
+            fp.write('Hello')
+
+        os.system('tar cf "%s" -C "%s" .' % (self.test_file, self.long_dir))
+        with open(self.test_file, 'rb') as in_fp, open(
+                self.test_filed, 'wb') as out_fp:
+            dtar.filter_tar(
+                in_fp, out_fp, self.blockstore_directory, 'test_password')
+
+        self.basic_dtar_comparison()
+
+
 unittest.main()
