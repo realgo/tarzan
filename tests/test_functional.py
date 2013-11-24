@@ -18,8 +18,6 @@ import sys
 sys.path.append('..')
 import dtar
 
-verbose = False
-
 
 class test_DTarBasic(unittest.TestCase):
     def setUp(self):
@@ -46,20 +44,19 @@ class test_DTarBasic(unittest.TestCase):
         with open(self.test_file, 'rb') as in_fp, open(
                 self.test_filed, 'wb') as out_fp:
             dtar.filter_tar(
-                in_fp, out_fp, self.blockstore_directory, 'test_password',
-                verbose=verbose)
+                in_fp, out_fp, self.blockstore_directory, 'test_password')
 
         with self.assertRaises(dtar.InvalidDTARInputError):
             with open(self.test_filed, 'rb') as in_fp:
                 dtar.list_dtar(
                     in_fp, self.dev_null, self.blockstore_directory,
-                    'bad_password', verbose=verbose)
+                    'bad_password')
 
         output_file = StringIO()
         with open(self.test_filed, 'rb') as in_fp:
             dtar.list_dtar(
                 in_fp, output_file, self.blockstore_directory,
-                'test_password', verbose=verbose)
+                'test_password')
         self.assertEqual(output_file.getvalue(), '')
 
         self.compare_source_and_decrypted()
@@ -69,8 +66,7 @@ class test_DTarBasic(unittest.TestCase):
         with open(self.test_file, 'rb') as in_fp, open(
                 self.test_filed, 'wb') as out_fp:
             dtar.filter_tar(
-                in_fp, out_fp, self.blockstore_directory, 'test_password',
-                verbose=verbose)
+                in_fp, out_fp, self.blockstore_directory, 'test_password')
 
         self.basic_dtar_comparison()
 
@@ -81,8 +77,7 @@ class test_DTarBasic(unittest.TestCase):
         with open(self.test_file, 'rb') as in_fp, open(
                 self.test_filed, 'wb') as out_fp:
             dtar.filter_tar(
-                in_fp, out_fp, self.blockstore_directory, 'test_password',
-                verbose=verbose)
+                in_fp, out_fp, self.blockstore_directory, 'test_password')
 
         self.basic_dtar_comparison()
 
@@ -94,7 +89,7 @@ class test_DTarBasic(unittest.TestCase):
         with open(self.test_filed, 'rb') as in_fp:
             dtar.list_dtar(
                 in_fp, output_file, self.blockstore_directory,
-                'test_password', verbose=verbose)
+                'test_password')
 
         output = output_file.getvalue()
         self.assertEqual(
@@ -105,7 +100,7 @@ class test_DTarBasic(unittest.TestCase):
         with open(self.test_filed, 'rb') as in_fp:
             dtar.decrypt_dtar(
                 in_fp, output_file, self.blockstore_directory,
-                'test_password', verbose=verbose)
+                'test_password')
 
         #  decrypted dtar has appropriate file names (payload still detached)
         output_file.seek(0)
@@ -129,7 +124,7 @@ class test_DTarBasic(unittest.TestCase):
         with open(self.test_filed, 'rb') as in_fp:
             dtar.decrypt_dtar(
                 in_fp, output_file, self.blockstore_directory,
-                'test_password', verbose=verbose)
+                'test_password')
         sum = md5.new()
         sum.update(output_file.getvalue())
         result_sum = sum.hexdigest()

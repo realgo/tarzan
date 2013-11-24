@@ -1,5 +1,5 @@
-Fix last block of index, something isn't quite right.
-The output file encryption is done with blocks of 16.  But I'm compressing
-    it, so is it going to be 16 bytes still?  Seems like I can't guarantee
-    that.
-Encrypted output end-block should be length 0?
+STILL AN ISSUE? Fix last block of index, something isn't quite right.
+Documentation update.
+Testing of "extract" in code and manually.
+Document workflow for usage.
+Verify the usage of the PAX headers of long file names?
