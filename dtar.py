@@ -1084,6 +1084,9 @@ def parse_args():
     parser.add_argument(
         '-v', '--verbose', action='store_true',
         help='Display information about what actions are taken to stderr.')
+    parser.add_argument(
+        '--debug', action='store_true', default=False,
+        help='Display information useful for debugging dtar.')
 
     parser.add_argument(
         '-c', '--config-file', default='~/.dtarrc',

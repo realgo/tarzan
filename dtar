@@ -23,29 +23,25 @@ def open_args(args):
 def do_create(args, password):
     in_fp, out_fp = open_args(args)
     dtar.filter_tar(
-        in_fp, out_fp, args.blockstore_directory, password,
-        verbose=args.verbose)
+        in_fp, out_fp, args.blockstore_directory, password)
 
 
 def do_decrypt(args, password):
     in_fp, out_fp = open_args(args)
     dtar.decrypt_dtar(
-        in_fp, out_fp, args.blockstore_directory, password,
-        verbose=args.verbose)
+        in_fp, out_fp, args.blockstore_directory, password)
 
 
 def do_list(args, password):
     in_fp, out_fp = open_args(args)
     dtar.list_dtar(
-        in_fp, out_fp, args.blockstore_directory, password,
-        verbose=args.verbose)
+        in_fp, out_fp, args.blockstore_directory, password)
 
 
 def do_extract(args, password):
     in_fp, out_fp = open_args(args)
     dtar.filter_dtar(
-        in_fp, out_fp, args.blockstore_directory, password,
-        verbose=args.verbose)
+        in_fp, out_fp, args.blockstore_directory, password)
 
 
 def main():
