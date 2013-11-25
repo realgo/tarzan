@@ -408,8 +408,9 @@ class BlockStorageDirectory:
         self.blocks_map[hashkey] = '%d,%d' % (
             self.current_brick, self.brick_size)
 
-        debug(
-            1, 'Storing block: %s' % short_hashkey_to_hex(hashkey))
+        debug(1, 'Storing block {0} to {1} at {2}'.format(
+            short_hashkey_to_hex(hashkey), self.current_brick,
+            self.brick_file.tell()))
 
         self.toc_file.write(hashkey + struct.pack('!L', self.brick_size))
         self.brick_file.write(header)
@@ -428,8 +429,9 @@ class BlockStorageDirectory:
 
         brick_info = self.get_brick_file(brick_id)
 
-        print brick_id, offset, brick_info
         with open(brick_info.brick, 'rb') as fp:
+            debug(1, 'Retrieving block {0} from {1} offset {2}'.format(
+                short_hashkey_to_hex(hashkey), brick_id, offset))
             fp.seek(offset)
             header = fp.read(4 + 4 + 68 + 64 + 16)
 
