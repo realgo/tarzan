@@ -39,22 +39,47 @@ class ConfigHelpersClass:
         self.verbose_level = 0
         self.debug_level = 0
 
-    def debug(self, level, msg):
+    def _write_msg(self, msg):
         if not msg.endswith('\n'):
             msg += '\n'
-        if level <= self.debug_level:
-            sys.stderr.write(msg)
+        sys.stderr.write(msg)
 
-    def verbose(self, level, msg):
-        if not msg.endswith('\n'):
-            msg += '\n'
-        if level <= self.verbose_level:
-            sys.stderr.write(msg)
+    def debug(self, *args):
+        if len(args) == 2:
+            level = args[0]
+            msg = args[1]
+        else:
+            level = 0
+            msg = args[0]
+
+        if not self.is_debug_level(level):
+            return
+        self._write_msg(msg)
+
+    def is_debug_level(self, level):
+        return level <= self.debug_level
+
+    def verbose(self, *args):
+        if len(args) == 2:
+            level = args[0]
+            msg = args[1]
+        else:
+            level = 0
+            msg = args[0]
+
+        if not self.is_verbose_level(level):
+            return
+        self._write_msg(msg)
+
+    def is_verbose_level(self, level):
+        return level <= self.debug_level
 
 
 config_helpers = ConfigHelpersClass()
 debug = config_helpers.debug
-verbose = config_helpers.debug
+is_debug_level = config_helpers.is_debug_level
+verbose = config_helpers.verbose
+is_verbose_level = config_helpers.is_verbose_level
 
 
 def make_seq_filename(sequence_id):
@@ -318,6 +343,9 @@ class BlockStorageDirectory:
         self.brick_file = open(brick_info.brick, 'a')
         self.toc_file = open(brick_info.toc, 'a')
         self.brick_size = 0
+
+        debug(
+            2, 'Opening new brick: %s' % os.path.basename(brick_info.brick))
 
     def close_brick(self):
         '''Close a brick and finalize it.
@@ -866,9 +894,9 @@ def filter_tar(
             debug(1, 'Got tar EOF')
             break
 
-        if config_helpers.verbose_level:
+        if config_helpers.is_verbose_level(1):
             filetype = tar_header_to_filetype(tar_header)
-            verbose(1, '%s %-10s %s' % (
+            verbose('%s %-10s %s' % (
                 filetype, tar_header.size, tar_header.path))
 
         output_file.beginning_of_file()
@@ -935,9 +963,9 @@ def filter_dtar(
             debug(1, 'Got tar EOF')
             break
 
-        if config_helpers.verbose_level:
+        if config_helpers.is_verbose_level(1):
             filetype = tar_header_to_filetype(tar_header)
-            verbose(1, '%s %-10s %s' % (
+            verbose('%s %-10s %s' % (
                 filetype, tar_header.size, tar_header.path))
 
         if tar_header.size == 0:
