@@ -40,10 +40,14 @@ class ConfigHelpersClass:
         self.debug_level = 0
 
     def debug(self, level, msg):
+        if not msg.endswith('\n'):
+            msg += '\n'
         if level <= self.debug_level:
             sys.stderr.write(msg)
 
     def verbose(self, level, msg):
+        if not msg.endswith('\n'):
+            msg += '\n'
         if level <= self.verbose_level:
             sys.stderr.write(msg)
 
@@ -430,8 +434,8 @@ class EncryptIndexClass:
 
         :returns: str -- DTAR index header
         '''
-        verbose(
-            1, 'Formatting index header: uuid: "%s", base_iv: "%s"\n'
+        debug(
+            2, 'Formatting index header: uuid: "%s", base_iv: "%s"'
             % (self.blockstore.uuid, repr(self.sequential_iv.base_iv)))
 
         return bytes(
@@ -454,9 +458,9 @@ class EncryptIndexClass:
         '''
         magic = 'dtbz' if compressed else 'dtb1'
 
-        verbose(
-            1, 'Format payload header: magic: "%s", length: %d, '
-            'crypto_iv: "%s" block_hmac: "%s"\n'
+        debug(
+            2, 'Format payload header: magic: "%s", length: %d, '
+            'crypto_iv: "%s" block_hmac: "%s"'
             % (magic, length, repr(crypto_iv), repr(block_hmac)))
 
         return magic + crypto_iv + block_hmac + struct.pack('!L', length)
@@ -473,7 +477,7 @@ class EncryptIndexClass:
 
         :returns: str -- The block header.
         '''
-        verbose(1, 'Flush')
+        debug(3, 'EncryptIndexClass.flush()')
 
         is_last_block = False if len(self.block) >= 16 else True
         if is_last_block:
@@ -516,7 +520,7 @@ class EncryptIndexClass:
         output.  If the output buffer is larger than `split_size`, the buffer
         is flushed.
         '''
-        verbose(1, 'beginning_of_file')
+        debug(4, 'EncryptIndexClass.beginning_of_file()')
 
         if len(self.block) >= self.split_size:
             self.flush()
@@ -533,7 +537,7 @@ class EncryptIndexClass:
 
         :returns: str -- The block header.
         '''
-        verbose(1, 'write(length=%d)' % len(data))
+        debug(4, 'EncryptIndexClass.write(length=%d)' % len(data))
 
         self.bytes_written += len(data)
         if len(self.block) >= 2 * self.split_size:
@@ -546,7 +550,7 @@ class EncryptIndexClass:
         All buffered data is written, and a closing block is written.  This
         object is no longer usable after this.
         '''
-        verbose(1, 'Close')
+        debug(4, 'EncryptIndexClass.close()')
 
         trailing_padding = 10240 - (self.bytes_written % 10240)
         if trailing_padding == 0:
@@ -595,8 +599,8 @@ class DecryptIndexClass:
         :type length: int
         :returns: str -- Data that was read.
         '''
-        verbose(
-            1, 'read(length=%d), existing buffer: %d'
+        debug(
+            4, 'DecryptIndexClass.read(length=%d), existing buffer: %d'
             % (length, len(self.buffer)))
 
         while length > len(self.buffer) and not self.eof:
@@ -617,8 +621,8 @@ class DecryptIndexClass:
         self.uuid = data[4:40]
         self.base_iv = data[40:56]
 
-        verbose(
-            1, 'dtar header: magic: "%s", uuid: "%s", base_iv: "%s"'
+        debug(
+            2, 'dtar header: magic: "%s", uuid: "%s", base_iv: "%s"'
             % (data[:4], self.uuid, repr(self.base_iv)))
 
     def read_next_payload(self):
@@ -627,14 +631,14 @@ class DecryptIndexClass:
         See :py:func:`EncryptIndexClass::format_payload_header` for the
         layout of the header.'''
 
-        verbose(1, 'read_next_payload()')
+        debug(4, 'DecryptIndexClass.read_next_payload()')
 
         data = self.fp.read(4 + 16 + 64 + 4)
         if not data:
             raise EOFError()
 
         magic = data[:4]
-        verbose(1, 'Payload magic: %s' % repr(magic))
+        debug(3, 'Payload magic: %s' % repr(magic))
 
         if magic not in ['dtbz', 'dtb1']:
             raise ValueError('Invalid payload, did not find magic number')
@@ -642,8 +646,8 @@ class DecryptIndexClass:
         block_hmac = data[20:84]
         payload_length = struct.unpack('!L', data[84:88])[0]
 
-        verbose(
-            1, 'Read header: crypto_iv: "%s", block_hmac: "%s", '
+        debug(
+            2, 'Read header: crypto_iv: "%s", block_hmac: "%s", '
             'payload_length: %d'
             % (repr(crypto_iv), repr(block_hmac), payload_length))
 
@@ -854,12 +858,12 @@ def filter_tar(
     output_file = EncryptIndexClass(output_file, block_storage)
 
     while True:
-        verbose(1, 'filter_tar loop')
+        debug(3, 'filter_tar loop')
 
         try:
             tar_header = tarfp.TarInfo().fromfileobj(input_file)
         except tarfp.EOFHeaderError:
-            verbose(1, 'Got tar EOF')
+            debug(1, 'Got tar EOF')
             break
 
         if config_helpers.verbose_level:
@@ -923,12 +927,12 @@ def filter_dtar(
     input_file = DecryptIndexClass(input_file, block_storage)
 
     while True:
-        verbose(1, 'filter_dtar loop')
+        debug(3, 'filter_dtar loop')
 
         try:
             tar_header = tarfp.TarInfo().fromfileobj(input_file)
         except tarfp.EOFHeaderError:
-            verbose(1, 'Got tar EOF')
+            debug(1, 'Got tar EOF')
             break
 
         if config_helpers.verbose_level:
@@ -1082,10 +1086,10 @@ def parse_args():
         '-d', '--blockstore-directory',
         help='The directory to place the blockstore data in.')
     parser.add_argument(
-        '-v', '--verbose', action='store_true',
+        '-v', '--verbose', action='count',
         help='Display information about what actions are taken to stderr.')
     parser.add_argument(
-        '--debug', action='store_true', default=False,
+        '--debug', action='count',
         help='Display information useful for debugging dtar.')
 
     parser.add_argument(
@@ -1157,9 +1161,9 @@ def parse_args():
     args = parser.parse_args()
 
     if args.verbose:
-        config_helpers.verbose_level = 1
+        config_helpers.verbose_level = args.verbose
     if args.debug:
-        config_helpers.debug_level = 1
+        config_helpers.debug_level = args.debug
 
     return args
 
