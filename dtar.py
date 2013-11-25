@@ -82,6 +82,18 @@ verbose = config_helpers.verbose
 is_verbose_level = config_helpers.is_verbose_level
 
 
+def hashkey_to_hex(s):
+    len_length = struct.calcsize('!L')
+    return '{0}:{1}'.format(
+        ''.join(['{0:0>2x}'.format(ord(x)) for x in s[:-len_length]]),
+        struct.unpack('!L', s[-len_length:])[0])
+
+
+def short_hashkey_to_hex(s):
+    s = hashkey_to_hex(s)
+    return '{0}..{1}'.format(s[:9], s[119:])
+
+
 def make_seq_filename(sequence_id):
     '''Convert the sequence ID into a directory+file-name.
 
@@ -345,7 +357,7 @@ class BlockStorageDirectory:
         self.brick_size = 0
 
         debug(
-            2, 'Opening new brick: %s' % os.path.basename(brick_info.brick))
+            1, 'Opening new brick: %s' % os.path.basename(brick_info.brick))
 
     def close_brick(self):
         '''Close a brick and finalize it.
@@ -354,6 +366,7 @@ class BlockStorageDirectory:
         '''
         self.save()
         if self.brick_file:
+            debug(2, 'Finalizing brick')
             self.brick_file.close()
         if self.toc_file:
             self.toc_file.close()
@@ -384,9 +397,19 @@ class BlockStorageDirectory:
         header, payload = self.encode_block(block, hashkey, hmac_digest)
 
         if hashkey in self.blocks_map:
+            debug(
+                1, 'Duplicate block found: %s' % short_hashkey_to_hex(hashkey))
             return
+
+        if not self.have_active_brick() or (
+                self.brick_size and self.brick_size > self.brick_size_max):
+            self.new_brick()
+
         self.blocks_map[hashkey] = '%d,%d' % (
             self.current_brick, self.brick_size)
+
+        debug(
+            1, 'Storing block: %s' % short_hashkey_to_hex(hashkey))
 
         self.toc_file.write(hashkey + struct.pack('!L', self.brick_size))
         self.brick_file.write(header)
@@ -738,14 +761,8 @@ def filter_tar_file_body(
         hashkey = block_storage.gen_hashkey(data, hmac_digest)
         output_file.write(hashkey)
 
-        if hashkey not in block_storage.blocks_map:
-            if not block_storage.have_active_brick() or (
-                    block_storage.brick_size
-                    and block_storage.brick_size
-                    > block_storage.brick_size_max):
-                block_storage.new_brick()
-            block_storage.store_block(
-                data, hashkey=hashkey, hmac_digest=hmac_digest)
+        block_storage.store_block(
+            data, hashkey=hashkey, hmac_digest=hmac_digest)
 
     #  whole file hash
     hash_key = file_hash.digest() + struct.pack('!L', 0)
