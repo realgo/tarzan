@@ -635,7 +635,7 @@ class EncryptIndexClass:
         mac512 = HMAC.new(self.blockstore.aes_key, digestmod=SHA512)
         hmac_digest = mac512.digest()
         header = self.format_payload_header(
-            False, crypto_iv, hmac_digest, 0)
+            False, crypto_iv, hmac_digest, 0, 0)
         self.fp.write(header)
 
         self.fp.close()
