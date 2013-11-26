@@ -307,6 +307,7 @@ class BlockStorageDirectory:
             block magic number ("dt1z" for compressed+AWS or "dt1n" for
                     just AES)
             payload length (4 bytes encoded network-format)
+            decoded length (4 bytes encoded network-format)
             hashkey (64 bytes SHA512 hash of block and HMAC,
                     4 bytes raw length)
             hmac (64 bytes SHA512 data signature)
@@ -320,6 +321,7 @@ class BlockStorageDirectory:
         :type hashkey: str
         :returns: (str,str) -- A tuple of the block header and payload data.
         '''
+        decoded_length = len(block)
         block_magic = 'dt1n'
         compressed_block = zlib.compress(block)
         if len(compressed_block) < len(block):
@@ -335,7 +337,8 @@ class BlockStorageDirectory:
         block = crypto.encrypt(block)
 
         header = (
-            block_magic + struct.pack('!L', len(block)) + hashkey
+            block_magic + struct.pack('!L', len(block)) +
+            struct.pack('!L', decoded_length) + hashkey
             + hmac + crypto_iv)
         return header, block
 
@@ -414,7 +417,9 @@ class BlockStorageDirectory:
 
         self.toc_file.write(hashkey + struct.pack('!L', self.brick_size))
         self.brick_file.write(header)
+        debug(4, 'Header: %s' % repr(header))
         self.brick_file.write(payload)
+        debug(4, 'Payload: %s' % repr(payload[:32]))
         self.brick_size += len(header) + len(payload)
 
     def retrieve_block(self, hashkey):
@@ -433,22 +438,27 @@ class BlockStorageDirectory:
             debug(1, 'Retrieving block {0} from {1} offset {2}'.format(
                 short_hashkey_to_hex(hashkey), brick_id, offset))
             fp.seek(offset)
-            header = fp.read(4 + 4 + 68 + 64 + 16)
+            header = fp.read(4 + 4 + 4 + 68 + 64 + 16)
+            debug(4, 'Header: %s' % repr(header))
 
             header_magic = header[:4]
             header_payload_length = struct.unpack('!L', header[4:8])[0]
-            header_hashkey = header[8:76]
-            header_hmac = header[76:140]
-            header_crypto_iv = header[140:]
+            header_decoded_length = struct.unpack('!L', header[8:12])[0]
+            header_hashkey = header[12:80]
+            header_hmac = header[80:144]
+            header_crypto_iv = header[144:]
 
             if header_magic not in ['dt1z', 'dt1n']:
                 raise ValueError('Invalid hashkey in read block')
             if hashkey != header_hashkey:
                 raise ValueError('Hash key in block does not match expected.')
 
+            payload = fp.read(header_payload_length)
+            debug(4, 'Payload: %s' % repr(payload[:32]))
             payload = decode_payload(
-                fp.read(header_payload_length), self.aes_key,
-                header_crypto_iv, header_hmac, header_magic)
+                payload, self.aes_key,
+                header_crypto_iv, header_hmac, header_magic,
+                header_decoded_length)
 
             return payload
 
@@ -495,7 +505,7 @@ class EncryptIndexClass:
             'dti1' + self.blockstore.uuid) + self.sequential_iv.base_iv
 
     def format_payload_header(
-            self, compressed, crypto_iv, block_hmac, length):
+            self, compressed, crypto_iv, block_hmac, length, decoded_length):
         '''Format a header for each block of payload.
 
         :param compressed: If true, the block is compressed.
@@ -506,6 +516,8 @@ class EncryptIndexClass:
         :type block_hmac: str
         :param length: Length of the compressed block.
         :type length: int
+        :param decoded_length: Length of the original data block.
+        :type decoded_length: int
 
         :returns: str -- The block header.
         '''
@@ -516,7 +528,9 @@ class EncryptIndexClass:
             'crypto_iv: "%s" block_hmac: "%s"'
             % (magic, length, repr(crypto_iv), repr(block_hmac)))
 
-        return magic + crypto_iv + block_hmac + struct.pack('!L', length)
+        return (
+            magic + crypto_iv + block_hmac + struct.pack('!L', length)
+            + struct.pack('!L', decoded_length))
 
     def flush(self):
         '''Flush the current buffered data.
@@ -540,6 +554,8 @@ class EncryptIndexClass:
             remainder = len(self.block) % 16
             block_to_write = self.block[:len(self.block) - remainder]
             self.block = self.block[len(self.block) - remainder:]
+        decoded_length = len(block_to_write)
+        decoded_length = len(block_to_write)
 
         compressed = False
         hmac_digest = '\0' * 64
@@ -560,7 +576,8 @@ class EncryptIndexClass:
         block_to_write = crypto.encrypt(block_to_write)
 
         header = self.format_payload_header(
-            compressed, crypto_iv, hmac_digest, len(block_to_write))
+            compressed, crypto_iv, hmac_digest, len(block_to_write),
+            decoded_length)
 
         self.fp.write(header)
         self.fp.write(block_to_write)
@@ -686,7 +703,7 @@ class DecryptIndexClass:
 
         debug(4, 'DecryptIndexClass.read_next_payload()')
 
-        data = self.fp.read(4 + 16 + 64 + 4)
+        data = self.fp.read(4 + 16 + 64 + 4 + 4)
         if not data:
             raise EOFError()
 
@@ -698,6 +715,7 @@ class DecryptIndexClass:
         crypto_iv = data[4:20]
         block_hmac = data[20:84]
         payload_length = struct.unpack('!L', data[84:88])[0]
+        decoded_length = struct.unpack('!L', data[88:92])[0]
 
         debug(
             2, 'Read header: crypto_iv: "%s", block_hmac: "%s", '
@@ -706,7 +724,8 @@ class DecryptIndexClass:
 
         payload = decode_payload(
             self.fp.read(payload_length),
-            self.blockstore.aes_key, crypto_iv, block_hmac, magic)
+            self.blockstore.aes_key, crypto_iv, block_hmac, magic,
+            decoded_length)
 
         if len(payload) == 0:
             self.eof = True
@@ -714,7 +733,8 @@ class DecryptIndexClass:
         self.buffer += payload
 
 
-def decode_payload(payload, aes_key, crypto_iv, block_hmac, magic):
+def decode_payload(
+        payload, aes_key, crypto_iv, block_hmac, magic, decoded_length):
     crypto = AES.new(aes_key, AES.MODE_CBC, crypto_iv)
     payload = crypto.decrypt(payload)
     if magic.endswith('z'):
@@ -724,8 +744,12 @@ def decode_payload(payload, aes_key, crypto_iv, block_hmac, magic):
             raise InvalidDTARInputError(
                 'Unable to decompress payload (password problem?)')
 
+    if len(payload) != decoded_length:
+        payload = payload[:decoded_length]
+
     mac512 = HMAC.new(aes_key, digestmod=SHA512)
     mac512.update(payload)
+    debug(3, 'MAC data length: %d' % len(payload))
     resulting_hmac = mac512.digest()
 
     if resulting_hmac != block_hmac:
@@ -758,6 +782,7 @@ def filter_tar_file_body(
         mac512 = HMAC.new(block_storage.aes_key, digestmod=SHA512)
         mac512.update(data)
         file_hash.update(data)
+        debug(3, 'MAC data length: %d' % len(data))
         hmac_digest = mac512.digest()
 
         hashkey = block_storage.gen_hashkey(data, hmac_digest)
