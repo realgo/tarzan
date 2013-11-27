@@ -4,7 +4,7 @@
 #  Date: Sun Nov 10, 2013
 
 import sys
-import dtar
+import tarzan
 
 
 def open_args(args):
@@ -22,33 +22,33 @@ def open_args(args):
 
 def do_create(args, password):
     in_fp, out_fp = open_args(args)
-    dtar.filter_tar(
+    tarzan.filter_tar(
         in_fp, out_fp, args.blockstore_directory, password)
 
 
 def do_decrypt(args, password):
     in_fp, out_fp = open_args(args)
-    dtar.decrypt_dtar(
+    tarzan.decrypt_tarzan(
         in_fp, out_fp, args.blockstore_directory, password)
 
 
 def do_list(args, password):
     in_fp, out_fp = open_args(args)
-    dtar.list_dtar(
+    tarzan.list_tarzan(
         in_fp, out_fp, args.blockstore_directory, password)
 
 
 def do_extract(args, password):
     in_fp, out_fp = open_args(args)
-    dtar.filter_dtar(
+    tarzan.filter_tarzan(
         in_fp, out_fp, args.blockstore_directory, password)
 
 
 def main():
-    args = dtar.parse_args()
+    args = tarzan.parse_args()
     try:
-        config = dtar.load_config_file(args.config_file)
-        password = dtar.get_password(args)
+        config = tarzan.load_config_file(args.config_file)
+        password = tarzan.get_password(args)
 
         if not password:
             if 'password' in config:
@@ -61,7 +61,7 @@ def main():
             raise ValueError(
                 'No password specified in config file or command-line')
     except ValueError as e:
-        dtar.error(e.message)
+        tarzan.error(e.message)
 
     if args.command == 'create':
         do_create(args, password)

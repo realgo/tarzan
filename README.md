@@ -1,25 +1,24 @@
-Detached Tar
-============
+Tarzan De-Duplicated TAR Backups for Amazon Glacier
+===================================================
 
-Detached TAR (dtar) is a tool for TAR and PAX archives (as created by the
-Unix "tar" command) to compress, encrypt, and de-duplicate the file data in
-the tar file.
+Tarzan is a backup tool meant for use with Amazon Glacier and other similar
+types of cloud storage.  It will de-duplicate, encrypt, and authenticate
+the backup data for storage in a cloud storage service.
 
-In particular, it is meant for backing up systems with Amazon S3 and Glacier.
-Being Glacier-compatible means off-site backups for $0.01/GB/month or
-$10/TB/month.
+It is specifically designed to work with Amazon Glacier, because of
+their $0.01/GB/month storage pricing, while preserving the privacy and
+authenticity of the data.
 
 Status
 ------
 
-This code has done a full round-trip that had the extracted files from the
-reconstituted tar file match the checksums of the original tar file,
-though the tar files had some slight differences that I need to hand check
-to ensure they are ok.  I may be missing some padding, but I wouldn't have
-expected tar to extract properly in that case.
+This code is fairly young (started work in Nov 2013), but is complete to
+the point where I have done a full system backup to it and extracted it and
+compared the results to the original system backup tar file, with no
+differences.
 
-More testing is needed, but I'm expecting it to be fairly close to usable
-with the final file formats in place.
+At this point I'm considering the file formats to be stable and putting the
+code into beta.
 
 Integrated upload to S3/Glacier is not yet started, but can be run as an
 external process with "s3cmd sync".
@@ -37,11 +36,11 @@ Getting Started
 
 Currently, the "bricks" (files containing the data blocks for upload to S3)
 are written to "/dev/shm/test.bs".  So you need to have enough space there to
-write the payload data, or you need to change it by modifying the "dtar" file.
+write the payload data, or you need to change it by modifying the "tarzan" file.
 
-Then, just pipe "tar" output through "dtar" and save the output:
+Then, just pipe "tar" output through "tarzan" and save the output:
 
-    tar c . | python dtar >local-index.tar
+    tar c . | python tarzan >local-index.tar
 
 This writes a bunch of data files to the block storage ("/dev/shm/test.bs"),
 and writes out an index tar file to "local-index.tar".  This is still a tar
@@ -55,4 +54,4 @@ Author: Sean Reifschneider <sean+opensource@realgo.com>
 Date: Mon Nov 11, 2013  
 License: GPLv2
 License: tarfp.py: Modified from Python source code to handle file object.
-Code/Bugs: https://github.com/realgo/dtar
+Code/Bugs: https://github.com/realgo/tarzan

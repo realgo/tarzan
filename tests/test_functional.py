@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-#  Functional test of dtar.
+#  Functional test of tarzan.
 #
 #===============
 #  This is based on a skeleton test file, more information at:
@@ -16,16 +16,16 @@ import md5
 import tarfile
 import sys
 sys.path.append('..')
-import dtar
+import tarzan
 
 
-class test_DTarBasic(unittest.TestCase):
+class test_TarzanBasic(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp(prefix='dtar_test')
+        self.temp_dir = tempfile.mkdtemp(prefix='tarzan_test')
         self.blockstore_directory = os.path.join(self.temp_dir, 'blockstore')
         self.test_file = os.path.join(self.temp_dir, 'file1.tar')
         self.test_file2 = os.path.join(self.temp_dir, 'file2.tar')
-        self.test_filed = os.path.join(self.temp_dir, 'file.dtar')
+        self.test_filed = os.path.join(self.temp_dir, 'file.tarzan')
         self.dev_null = open('/dev/null', 'w')
 
     def tearDown(self):
@@ -43,18 +43,18 @@ class test_DTarBasic(unittest.TestCase):
         os.system('tar cfT "%s" /dev/null' % self.test_file)
         with open(self.test_file, 'rb') as in_fp, open(
                 self.test_filed, 'wb') as out_fp:
-            dtar.filter_tar(
+            tarzan.filter_tar(
                 in_fp, out_fp, self.blockstore_directory, 'test_password')
 
-        with self.assertRaises(dtar.InvalidDTARInputError):
+        with self.assertRaises(tarzan.InvalidTarzanInputError):
             with open(self.test_filed, 'rb') as in_fp:
-                dtar.list_dtar(
+                tarzan.list_tarzan(
                     in_fp, self.dev_null, self.blockstore_directory,
                     'bad_password')
 
         output_file = StringIO()
         with open(self.test_filed, 'rb') as in_fp:
-            dtar.list_dtar(
+            tarzan.list_tarzan(
                 in_fp, output_file, self.blockstore_directory,
                 'test_password')
         self.assertEqual(output_file.getvalue(), '')
@@ -65,10 +65,10 @@ class test_DTarBasic(unittest.TestCase):
         os.system('tar cf "%s" .' % self.test_file)
         with open(self.test_file, 'rb') as in_fp, open(
                 self.test_filed, 'wb') as out_fp:
-            dtar.filter_tar(
+            tarzan.filter_tar(
                 in_fp, out_fp, self.blockstore_directory, 'test_password')
 
-        self.basic_dtar_comparison()
+        self.basic_tarzan_comparison()
 
     def test_TarBig(self):
         self.make_big_dir()
@@ -76,18 +76,18 @@ class test_DTarBasic(unittest.TestCase):
         os.system('tar cf "%s" -C "%s" .' % (self.test_file, self.big_dir))
         with open(self.test_file, 'rb') as in_fp, open(
                 self.test_filed, 'wb') as out_fp:
-            dtar.filter_tar(
+            tarzan.filter_tar(
                 in_fp, out_fp, self.blockstore_directory, 'test_password')
 
-        self.basic_dtar_comparison()
+        self.basic_tarzan_comparison()
 
-    def basic_dtar_comparison(self):
+    def basic_tarzan_comparison(self):
         with open(self.test_file, 'rb') as fp:
             source_file_list = sorted(tarfile.open(fileobj=fp).getnames())
 
         output_file = StringIO()
         with open(self.test_filed, 'rb') as in_fp:
-            dtar.list_dtar(
+            tarzan.list_tarzan(
                 in_fp, output_file, self.blockstore_directory,
                 'test_password')
 
@@ -98,11 +98,11 @@ class test_DTarBasic(unittest.TestCase):
 
         output_file = StringIO()
         with open(self.test_filed, 'rb') as in_fp:
-            dtar.decrypt_dtar(
+            tarzan.decrypt_tarzan(
                 in_fp, output_file, self.blockstore_directory,
                 'test_password')
 
-        #  decrypted dtar has appropriate file names (payload still detached)
+        #  decrypted tarzan has appropriate file names (payload still detached)
         output_file.seek(0)
         tf = tarfile.open(fileobj=output_file)
         self.assertEqual(
@@ -122,7 +122,7 @@ class test_DTarBasic(unittest.TestCase):
 
         output_file = StringIO()
         with open(self.test_filed, 'rb') as in_fp:
-            dtar.decrypt_dtar(
+            tarzan.decrypt_tarzan(
                 in_fp, output_file, self.blockstore_directory,
                 'test_password')
         sum = md5.new()
@@ -147,10 +147,10 @@ class test_DTarBasic(unittest.TestCase):
         os.system('tar cf "%s" -C "%s" .' % (self.test_file, self.long_dir))
         with open(self.test_file, 'rb') as in_fp, open(
                 self.test_filed, 'wb') as out_fp:
-            dtar.filter_tar(
+            tarzan.filter_tar(
                 in_fp, out_fp, self.blockstore_directory, 'test_password')
 
-        self.basic_dtar_comparison()
+        self.basic_tarzan_comparison()
 
 
 unittest.main()

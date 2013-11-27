@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-#  Support functions for dtar.
+#  Support functions for tarzan.
 
 __author__ = 'Sean Reifschneider <sean+opensource@realgo.com>'
 __version__ = 'X.XX'
@@ -28,7 +28,7 @@ default_blocks_size = 30000
 default_brick_size_max = 30 * 1000 * 1000
 
 
-class InvalidDTARInputError(Exception):
+class InvalidTarzanInputError(Exception):
     '''General error with encrypted input.
     '''
     pass
@@ -130,8 +130,8 @@ BrickFileInfo = collections.namedtuple(
 
 class SequentialIV:
     '''An IV that can be incremented sequentially.
-    This is used in the DTAR tar headers to prevent re-use of the IV for each
-    file, but allow encrypting each file data-block separately.
+    This is used in the Tarzan tar headers to prevent re-use of the IV for
+    each file, but allow encrypting each file data-block separately.
     '''
     def __init__(self):
         self.base_iv = Random.new().read(16)
@@ -488,14 +488,14 @@ class EncryptIndexClass:
         fp.write(self.format_index_header())
 
     def format_index_header(self):
-        '''Format a DTAR index header.
+        '''Format a Tarzan index header.
 
         Header format:
             block magic number ("dti1").
             uuid (36 bytes identifying the BlockStorage)
             base_iv (16 random bytes)
 
-        :returns: str -- DTAR index header
+        :returns: str -- Tarzan index header
         '''
         debug(
             2, 'Formatting index header: uuid: "%s", base_iv: "%s"'
@@ -535,7 +535,7 @@ class EncryptIndexClass:
     def flush(self):
         '''Flush the current buffered data.
 
-        Takes the current buffer and writes it out as a dtar block.
+        Takes the current buffer and writes it out as a tarzan block.
         The block length is rounded to 16 bytes (required by AES),
         it is compressed (if that reduces the block) and encrypted,
         and the result is written out.  In the event of being called
@@ -643,14 +643,14 @@ class EncryptIndexClass:
 
 
 class DecryptIndexClass:
-    '''Decrypt the dtar format file.
+    '''Decrypt the tarzan format file.
 
-    This acts like a file and reads the dtar-format encrypted index file
+    This acts like a file and reads the tarzan-format encrypted index file
     and decrypts it.
     '''
     def __init__(self, fp, blockstore):
         '''
-        :param fp: The file to read encrypted dtar index from.
+        :param fp: The file to read encrypted tarzan index from.
         :type fp: file
         :param blockstore: The output blockstore (provides the aes_key
                 and UUID).
@@ -681,7 +681,7 @@ class DecryptIndexClass:
         return data
 
     def read_index_header(self):
-        '''Read the index header at the beginning of the dtar file.
+        '''Read the index header at the beginning of the tarzan file.
 
         See :py:func:`EncryptIndexClass::format_index_header` for the
         layout.'''
@@ -692,7 +692,7 @@ class DecryptIndexClass:
         self.base_iv = data[40:56]
 
         debug(
-            2, 'dtar header: magic: "%s", uuid: "%s", base_iv: "%s"'
+            2, 'tarzan header: magic: "%s", uuid: "%s", base_iv: "%s"'
             % (data[:4], self.uuid, repr(self.base_iv)))
 
     def read_next_payload(self):
@@ -741,7 +741,7 @@ def decode_payload(
         try:
             payload = zlib.decompress(payload)
         except zlib.error:
-            raise InvalidDTARInputError(
+            raise InvalidTarzanInputError(
                 'Unable to decompress payload (password problem?)')
 
     if len(payload) != decoded_length:
@@ -753,7 +753,7 @@ def decode_payload(
     resulting_hmac = mac512.digest()
 
     if resulting_hmac != block_hmac:
-        raise InvalidDTARInputError(
+        raise InvalidTarzanInputError(
             'Block HMAC did not match decrypted data')
 
     return payload
@@ -796,7 +796,7 @@ def filter_tar_file_body(
     output_file.write(hash_key)
 
 
-def filter_dtar_file_body(
+def filter_tarzan_file_body(
         input_file, input_length, output_file, block_storage):
     '''Reconstitute payload from detached blocks.
 
@@ -901,12 +901,12 @@ def filter_tar(
         input_file, output_file, block_storage_path, password,
         blocks_size=default_blocks_size,
         brick_size_max=default_brick_size_max):
-    '''Read a tar file from `input_file`, and filter it into a DTAR file
+    '''Read a tar file from `input_file`, and filter it into a Tarzan file
     that is written to `output_file`.
 
     :param input_file: Where to read tar file from.
     :type input_file: file
-    :param output_file: Where to write the encrypted DTAR file.
+    :param output_file: Where to write the encrypted Tarzan file.
     :type output_file: file
     :param block_storage_path: Directory to store detached blocks into.
     :type block_storage_path: str
@@ -964,18 +964,18 @@ def filter_tar(
         block_storage.close_brick()
 
 
-def filter_dtar(
+def filter_tarzan(
         input_file, output_file, block_storage_path, password,
         blocks_size=default_blocks_size,
         brick_size_max=default_brick_size_max):
-    '''Read a DTAR, decrypt and re-attach the payload blocks to it.
+    '''Read a Tarzan, decrypt and re-attach the payload blocks to it.
 
     This reconstructs the original tar file, putitng the data blocks back in
-    place after decrypting the DTAR.
+    place after decrypting the Tarzan.
 
     :param input_file: Where to read tar file from.
     :type input_file: file
-    :param output_file: Where to write the encrypted DTAR file.
+    :param output_file: Where to write the encrypted Tarzan file.
     :type output_file: file
     :param block_storage_path: Directory to store detached blocks into.
     :type block_storage_path: str
@@ -999,7 +999,7 @@ def filter_dtar(
     input_file = DecryptIndexClass(input_file, block_storage)
 
     while True:
-        debug(3, 'filter_dtar loop')
+        debug(3, 'filter_tarzan loop')
 
         try:
             tar_header = tarfp.TarInfo().fromfileobj(input_file)
@@ -1022,7 +1022,7 @@ def filter_dtar(
         tar_header.size = original_length
         output_file.write(tar_header.tobuf())
 
-        filter_dtar_file_body(
+        filter_tarzan_file_body(
             input_file, input_length, output_file, block_storage)
 
         read_padding(input_file, input_length)
@@ -1031,13 +1031,13 @@ def filter_dtar(
     output_file.flush()
 
 
-def list_dtar(
+def list_tarzan(
         input_file, output_file, block_storage_path, password,
         blocks_size=default_blocks_size,
         brick_size_max=default_brick_size_max):
-    '''Read a dtar and list the file entries that it contains.
+    '''Read a tarzan and list the file entries that it contains.
 
-    :param input_file: Where to read encrypted dtar file from.
+    :param input_file: Where to read encrypted tarzan file from.
     :type input_file: file
     :param output_file: Where to write the contents list.
     :type output_file: file
@@ -1080,13 +1080,13 @@ def list_dtar(
                 input_file.read(block_size)
 
 
-def decrypt_dtar(
+def decrypt_tarzan(
         input_file, output_file, block_storage_path, password,
         blocks_size=default_blocks_size,
         brick_size_max=default_brick_size_max):
-    '''Read a dtar and list the file entries that it contains.
+    '''Read a tarzan and list the file entries that it contains.
 
-    :param input_file: Where to read encrypted dtar file from.
+    :param input_file: Where to read encrypted tarzan file from.
     :type input_file: file
     :param output_file: Where to write the contents list.
     :type output_file: file
@@ -1162,10 +1162,10 @@ def parse_args():
         help='Display information about what actions are taken to stderr.')
     parser.add_argument(
         '--debug', action='count',
-        help='Display information useful for debugging dtar.')
+        help='Display information useful for debugging tarzan.')
 
     parser.add_argument(
-        '-c', '--config-file', default='~/.dtarrc',
+        '-c', '--config-file', default='~/.tarzanrc',
         help='The configuration file to use')
 
     group = parser.add_mutually_exclusive_group(required=False)
@@ -1180,23 +1180,23 @@ def parse_args():
         '-k', '--key-file',
         help='Read binary key from file')
 
-    subparsers = parser.add_subparsers(help='DTAR sub-commands')
+    subparsers = parser.add_subparsers(help='Tarzan sub-commands')
 
     command_parser = subparsers.add_parser(
         'create',
-        help='Create a dtar file, reading the original tar '
-        'file from stdin and writing the dtar index to stdout.')
+        help='Create a tarzan file, reading the original tar '
+        'file from stdin and writing the tarzan index to stdout.')
     command_parser.set_defaults(command='create')
     command_parser.add_argument(
         '-i', '--in', dest='in_file',
         help='File to read original tar file data from (default=stdin)')
     command_parser.add_argument(
         '-o', '--out', dest='out_file',
-        help='File to write dtar output to (default=stdout)')
+        help='File to write tarzan output to (default=stdout)')
 
     command_parser = subparsers.add_parser(
         'decrypt',
-        help='Take a dtar file and do a simple decryption of it.'
+        help='Take a tarzan file and do a simple decryption of it.'
         '  This is mostly for debugging.')
     command_parser.set_defaults(command='decrypt')
     command_parser.add_argument(
@@ -1204,11 +1204,11 @@ def parse_args():
         help='File to read original tar file data from (default=stdin)')
     command_parser.add_argument(
         '-o', '--out', dest='out_file',
-        help='File to write dtar output to (default=stdout)')
+        help='File to write tarzan output to (default=stdout)')
 
     command_parser = subparsers.add_parser(
         'list',
-        help='List the files in a dtar index, writing a list to '
+        help='List the files in a tarzan index, writing a list to '
         'stdout.')
     command_parser.set_defaults(command='list')
     command_parser.add_argument(
@@ -1216,11 +1216,11 @@ def parse_args():
         help='File to read original tar file data from (default=stdin)')
     command_parser.add_argument(
         '-o', '--out', dest='out_file',
-        help='File to write dtar output to (default=stdout)')
+        help='File to write tarzan output to (default=stdout)')
 
     command_parser = subparsers.add_parser(
         'extract',
-        help='Reconstruct the original tar file, given a dtar '
+        help='Reconstruct the original tar file, given a tarzan '
         'index the results are written to stdout.')
     command_parser.set_defaults(command='extract')
     command_parser.add_argument(
@@ -1228,7 +1228,7 @@ def parse_args():
         help='File to read original tar file data from (default=stdin)')
     command_parser.add_argument(
         '-o', '--out', dest='out_file',
-        help='File to write dtar output to (default=stdout)')
+        help='File to write tarzan output to (default=stdout)')
 
     args = parser.parse_args()
 
@@ -1290,7 +1290,7 @@ def tar_header_to_filetype(tar_header):
 def error(msg):
     '''Write an error from the command-line client and exit.
 
-    Exits with code 1, after writing the `msg` string and a dtar identifying
+    Exits with code 1, after writing the `msg` string and a tarzan identifying
     prefix.  Message is written to stderr.
 
     :param msg: Message to write to the user.

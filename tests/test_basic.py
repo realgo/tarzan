@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-#  Test of basic dtar functionality.
+#  Test of basic tarzan functionality.
 #
 #===============
 #  This is based on a skeleton test file, more information at:
@@ -12,10 +12,10 @@ import unittest
 import os
 import sys
 sys.path.append('..')
-import dtar
+import tarzan
 
 
-class test_DTarBasic(unittest.TestCase):
+class test_TarzanBasic(unittest.TestCase):
     def test_MakeSeqFilename(self):
         for file_id, results in [
                 (0, ('0', '0')),
@@ -28,13 +28,13 @@ class test_DTarBasic(unittest.TestCase):
                 (1679616, ('0', '100')),
                 (1679617, ('1', '100')), ]:
             self.assertEqual(
-                dtar.make_seq_filename(file_id), os.path.join(*results))
+                tarzan.make_seq_filename(file_id), os.path.join(*results))
 
     def test_BlockStorageDirectory(self):
         testdir = '/tmp/testblockstorage'
         os.system('rm -rf "%s"' % testdir)
 
-        bs = dtar.BlockStorageDirectory(testdir, 'TEST_PASSWORD')
+        bs = tarzan.BlockStorageDirectory(testdir, 'TEST_PASSWORD')
         self.assertTrue(os.path.exists(os.path.join(testdir, 'info')))
         self.assertEqual(bs.next_brick, 0)
 
@@ -51,11 +51,11 @@ class test_DTarBasic(unittest.TestCase):
         self.assertEqual(size_3, size_4)
         bs.close_brick()
 
-        bs2 = dtar.BlockStorageDirectory(testdir, 'TEST_PASSWORD')
+        bs2 = tarzan.BlockStorageDirectory(testdir, 'TEST_PASSWORD')
         self.assertEqual(bs2.next_brick, 1)
 
     def test_SequentialIV(self):
-        niv = dtar.SequentialIV()
+        niv = tarzan.SequentialIV()
         iv1 = niv.get_next_iv()
         niv.sequence += (1 << 64) - 2
         iv2 = niv.get_next_iv()
