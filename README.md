@@ -1,7 +1,7 @@
-Tarzan De-Duplicated TAR Backups for Amazon Glacier
+TARzan De-Duplicated TAR Backups for Amazon Glacier
 ===================================================
 
-Tarzan is a backup tool meant for use with Amazon Glacier and other similar
+TARzan is a backup tool meant for use with Amazon Glacier and other similar
 types of cloud storage.  It will de-duplicate, encrypt, and authenticate
 the backup data for storage in a cloud storage service.
 
@@ -26,26 +26,52 @@ external process with "s3cmd sync".
 Features
 --------
 
-   * Takes a tar file on stdin and deduplicates/compresses/encrypts the file
-     body data.
+   * Takes a tar file (or output piped from tar).  In other words,
+     delegates the backup function to the "tar" command.
+
+   * Encrypts, de-duplicates, and authenticates the data payload in the tar
+     files.
+
+   * Allows for full and future backups by only uploading changed data.
 
    * Writes data "bricks" in an Amazon Glacier-compatible format.
 
 Getting Started
 ---------------
 
-Currently, the "bricks" (files containing the data blocks for upload to S3)
-are written to "/dev/shm/test.bs".  So you need to have enough space there to
-write the payload data, or you need to change it by modifying the "tarzan" file.
+Basic usage information is available by running `tarzan --help`.
 
-Then, just pipe "tar" output through "tarzan" and save the output:
+You need a "block storage" directory, which is the location that the file
+data is written to.  These files need to be uploaded to the storage server
+(Amazon Glacier or S3, storage server) for "deep freezing".  There is also
+a `blocks_map` and `info` files that need to remain on the backup client
+machine, which identifies the block-store and the already uploaded blocks.
 
-    tar c . | python tarzan >local-index.tar
+You use "tar" to backup the files, and send that output into "tarzan" for
+storage.  For example, to backup the current directory into a local
+"blocks" block storage:
 
-This writes a bunch of data files to the block storage ("/dev/shm/test.bs"),
-and writes out an index tar file to "local-index.tar".  This is still a tar
-file, but the file payload is replaced with checksums of every 100KB, and then
-a final checksum of the whole input file.
+    tar c --exclude=./blocks . | \
+    tarzan -d blocks -P MY_PASSWORD create --out=backup1.tarzan
+
+This creates a `blocks` directory which stores the file data, and a
+"backup1.tarzan" file which is the backup meta-data (files, permissions,
+and links to the payload).  All of this is encrypted and protected against
+tampering.
+
+Now, to restore the data you need to can use the "extract" command, like
+this:
+
+    mkdir recovery
+    tarzan -d blocks -P MY_PASSWORD extract --in=backup1.tarzan | \
+    tar x -C recovery
+
+The recovered data is stored in the "recovery" sub-directory.
+
+The index file (`backup1.tarzan` in the above example) and any of the files
+starting with `dt_d` (data blocks) are required for recovery.  All other
+files (those starting with `dt_t`, `blocks_map`, and `index`) are all
+just duplicate data, for optimization purposes.
 
 Contact Information
 -------------------
