@@ -73,6 +73,27 @@ starting with `dt_d` (data blocks) are required for recovery.  All other
 files (those starting with `dt_t`, `blocks_map`, and `index`) are all
 just duplicate data, for optimization purposes.
 
+To copy these up to Amazon, currently, is an external step using the
+`s3cmd` program:
+
+    s3cmd sync --exclude 'blocks_map' blocks s3://my-backups/blocks
+    s3cmd sync backup1.tarzan s3://my-backups/
+
+This requires creating an S3 bucket, above named `my-backups`, and then
+configuring s3cmd with your credentials using:
+
+    s3cmd --configure
+
+Alternately, you could use the s3fs project to mount up an S3 bucket as a
+file-system and specify that with the "-d" argument.  I haven't tested
+this, but you'd probably want to use a symlink to place the `blocks_map`
+file on the local file-system.
+
+Once you are sure all the data has been uploaded to S3, you no longer need
+the local copies of any `dt_d-*` files.  You can also configure S3 via the
+management console to automatically migrate those files and possibly also the
+`dt_t-*` files to Glacier to reduce storage costs.
+
 Contact Information
 -------------------
 
