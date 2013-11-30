@@ -9,6 +9,28 @@ It is specifically designed to work with Amazon Glacier, because of
 their $0.01/GB/month storage pricing, while preserving the privacy and
 authenticity of the data.
 
+Features
+--------
+
+   * Takes a tar file (or output piped from tar).  In other words,
+     delegates the backup function to the `tar` command.
+
+   * Encrypts, de-duplicates, and authenticates the data payload in the tar
+     files.
+
+   * Allows for full and future backups by only uploading changed data.
+
+   * Writes data `bricks` in an Amazon Glacier-compatible format.
+
+Requirements
+------------
+
+   * python and python-crypto packages.
+
+   * tar
+
+   * s3cmd package and Amazon S3 or Glacier account for remote storage.
+
 Status
 ------
 
@@ -22,19 +44,6 @@ code into beta.
 
 Integrated upload to S3/Glacier is not yet started, but can be run as an
 external process with `s3cmd sync`.
-
-Features
---------
-
-   * Takes a tar file (or output piped from tar).  In other words,
-     delegates the backup function to the `tar` command.
-
-   * Encrypts, de-duplicates, and authenticates the data payload in the tar
-     files.
-
-   * Allows for full and future backups by only uploading changed data.
-
-   * Writes data `bricks` in an Amazon Glacier-compatible format.
 
 Getting Started
 ---------------
