@@ -1,9 +1,9 @@
-TARzan De-Duplicated TAR Backups for Amazon Glacier
-===================================================
+TARzan Cloud TAR Backups for S3/Glacier
+=======================================
 
-TARzan is a backup tool meant for use with Amazon Glacier and other similar
-types of cloud storage.  It will de-duplicate, encrypt, and authenticate
-the backup data for storage in a cloud storage service.
+TARzan is a backup tool meant for use with Amazon S3/Glacier and other
+similar types of cloud storage.  It will de-duplicate, encrypt, and
+authenticate the backup data for storage in a cloud storage service.
 
 It is specifically designed to work with Amazon Glacier, because of
 their $0.01/GB/month storage pricing, while preserving the privacy and
