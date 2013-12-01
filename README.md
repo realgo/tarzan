@@ -1,5 +1,5 @@
-TARzan -- Cloud TAR Backups
-===========================
+TARzan -- Cloud Backups with TAR
+================================
 
 TARzan is a backup tool meant for use with Amazon S3/Glacier and other
 similar types of cloud storage.  It will de-duplicate, encrypt, and
