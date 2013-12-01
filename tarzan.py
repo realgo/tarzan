@@ -317,7 +317,8 @@ class BlockStorageDirectory:
         self.toc_file = open(brick_info.toc, 'a')
         self.brick_size = 0
 
-        debug.error('Opening new brick: %s', os.path.basename(brick_info.brick))
+        debug.error(
+            'Opening new brick: %s', os.path.basename(brick_info.brick))
 
     def close_brick(self):
         '''Close a brick and finalize it.
@@ -358,7 +359,7 @@ class BlockStorageDirectory:
 
         if hashkey in self.blocks_map:
             debug.error(
-                'Duplicate block found: %s' % short_hashkey_to_hex(hashkey))
+                'Duplicate block found: %s', short_hashkey_to_hex(hashkey))
             return
 
         if not self.have_active_brick() or (
@@ -374,9 +375,9 @@ class BlockStorageDirectory:
 
         self.toc_file.write(hashkey + struct.pack('!L', self.brick_size))
         self.brick_file.write(header)
-        debug.info('Header: %s' % repr(header))
+        debug.info('Header: %s', repr(header))
         self.brick_file.write(payload)
-        debug.info('Payload: %s' % repr(payload[:32]))
+        debug.info('Payload: %s', repr(payload[:32]))
         self.brick_size += len(header) + len(payload)
 
     def retrieve_block(self, hashkey):
@@ -396,7 +397,7 @@ class BlockStorageDirectory:
                 short_hashkey_to_hex(hashkey), brick_id, offset))
             fp.seek(offset)
             header = fp.read(4 + 4 + 4 + 68 + 64 + 16)
-            debug.info('Header: %s' % repr(header))
+            debug.info('Header: %s', repr(header))
 
             header_magic = header[:4]
             header_payload_length = struct.unpack('!L', header[4:8])[0]
@@ -411,7 +412,7 @@ class BlockStorageDirectory:
                 raise ValueError('Hash key in block does not match expected.')
 
             payload = fp.read(header_payload_length)
-            debug.info('Payload: %s' % repr(payload[:32]))
+            debug.info('Payload: %s', repr(payload[:32]))
             payload = decode_payload(
                 payload, self.aes_key,
                 header_crypto_iv, header_hmac, header_magic,
@@ -455,8 +456,8 @@ class EncryptIndexClass:
         :returns: str -- Tarzan index header
         '''
         debug.warning(
-            'Formatting index header: uuid: "%s", base_iv: "%s"'
-            % (self.blockstore.uuid, repr(self.sequential_iv.base_iv)))
+            'Formatting index header: uuid: "%s", base_iv: "%s"',
+            self.blockstore.uuid, repr(self.sequential_iv.base_iv))
 
         return bytes(
             'dti1' + self.blockstore.uuid) + self.sequential_iv.base_iv
@@ -482,8 +483,8 @@ class EncryptIndexClass:
 
         debug.warning(
             'Format payload header: magic: "%s", length: %d, '
-            'crypto_iv: "%s" block_hmac: "%s"'
-            % (magic, length, repr(crypto_iv), repr(block_hmac)))
+            'crypto_iv: "%s" block_hmac: "%s"',
+            magic, length, repr(crypto_iv), repr(block_hmac))
 
         return (
             magic + crypto_iv + block_hmac + struct.pack('!L', length)
@@ -564,7 +565,7 @@ class EncryptIndexClass:
 
         :returns: str -- The block header.
         '''
-        debug.info('EncryptIndexClass.write(length=%d)' % len(data))
+        debug.info('EncryptIndexClass.write(length=%d)', len(data))
 
         self.bytes_written += len(data)
         if len(self.block) >= 2 * self.split_size:
@@ -627,8 +628,8 @@ class DecryptIndexClass:
         :returns: str -- Data that was read.
         '''
         debug.info(
-            'DecryptIndexClass.read(length=%d), existing buffer: %d'
-            % (length, len(self.buffer)))
+            'DecryptIndexClass.read(length=%d), existing buffer: %d',
+            length, len(self.buffer))
 
         while length > len(self.buffer) and not self.eof:
             self.read_next_payload()
@@ -649,8 +650,8 @@ class DecryptIndexClass:
         self.base_iv = data[40:56]
 
         debug.warning(
-            'tarzan header: magic: "%s", uuid: "%s", base_iv: "%s"'
-            % (data[:4], self.uuid, repr(self.base_iv)))
+            'tarzan header: magic: "%s", uuid: "%s", base_iv: "%s"',
+            data[:4], self.uuid, repr(self.base_iv))
 
     def read_next_payload(self):
         '''Read the next block of payload.
@@ -665,7 +666,7 @@ class DecryptIndexClass:
             raise EOFError()
 
         magic = data[:4]
-        debug.warning('Payload magic: %s' % repr(magic))
+        debug.warning('Payload magic: %s', repr(magic))
 
         if magic not in ['dtbz', 'dtb1']:
             raise ValueError('Invalid payload, did not find magic number')
@@ -676,8 +677,8 @@ class DecryptIndexClass:
 
         debug.warning(
             'Read header: crypto_iv: "%s", block_hmac: "%s", '
-            'payload_length: %d'
-            % (repr(crypto_iv), repr(block_hmac), payload_length))
+            'payload_length: %d',
+            repr(crypto_iv), repr(block_hmac), payload_length)
 
         payload = decode_payload(
             self.fp.read(payload_length),
@@ -706,7 +707,7 @@ def decode_payload(
 
     mac512 = HMAC.new(aes_key, digestmod=SHA512)
     mac512.update(payload)
-    debug.warning('MAC data length: %d' % len(payload))
+    debug.warning('MAC data length: %d', len(payload))
     resulting_hmac = mac512.digest()
 
     if resulting_hmac != block_hmac:
@@ -739,7 +740,7 @@ def filter_tar_file_body(
         mac512 = HMAC.new(block_storage.aes_key, digestmod=SHA512)
         mac512.update(data)
         file_hash.update(data)
-        debug.warning('MAC data length: %d' % len(data))
+        debug.warning('MAC data length: %d', len(data))
         hmac_digest = mac512.digest()
 
         hashkey = block_storage.gen_hashkey(data, hmac_digest)
