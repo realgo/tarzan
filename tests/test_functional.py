@@ -21,6 +21,8 @@ import tarzan
 
 class test_TarzanBasic(unittest.TestCase):
     def setUp(self):
+        tarzan.setup_logging(0, 0)
+
         self.temp_dir = tempfile.mkdtemp(prefix='tarzan_test')
         self.blockstore_directory = os.path.join(self.temp_dir, 'blockstore')
         self.test_file = os.path.join(self.temp_dir, 'file1.tar')

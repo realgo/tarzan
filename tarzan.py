@@ -21,65 +21,23 @@ import uuid
 import argparse
 import ConfigParser
 import collections
+import logging
 
 import tarfp
 
 default_blocks_size = 30000
 default_brick_size_max = 30 * 1000 * 1000
 
+#  loggers
+debug = None
+log = None
+verbose = None
+
 
 class InvalidTarzanInputError(Exception):
     '''General error with encrypted input.
     '''
     pass
-
-
-class ConfigHelpersClass:
-    def __init__(self):
-        self.verbose_level = 0
-        self.debug_level = 0
-
-    def _write_msg(self, msg):
-        if not msg.endswith('\n'):
-            msg += '\n'
-        sys.stderr.write(msg)
-
-    def debug(self, *args):
-        if len(args) == 2:
-            level = args[0]
-            msg = args[1]
-        else:
-            level = 0
-            msg = args[0]
-
-        if not self.is_debug_level(level):
-            return
-        self._write_msg(msg)
-
-    def is_debug_level(self, level):
-        return level <= self.debug_level
-
-    def verbose(self, *args):
-        if len(args) == 2:
-            level = args[0]
-            msg = args[1]
-        else:
-            level = 0
-            msg = args[0]
-
-        if not self.is_verbose_level(level):
-            return
-        self._write_msg(msg)
-
-    def is_verbose_level(self, level):
-        return level <= self.debug_level
-
-
-config_helpers = ConfigHelpersClass()
-debug = config_helpers.debug
-is_debug_level = config_helpers.is_debug_level
-verbose = config_helpers.verbose
-is_verbose_level = config_helpers.is_verbose_level
 
 
 def hashkey_to_hex(s):
@@ -359,8 +317,7 @@ class BlockStorageDirectory:
         self.toc_file = open(brick_info.toc, 'a')
         self.brick_size = 0
 
-        debug(
-            1, 'Opening new brick: %s' % os.path.basename(brick_info.brick))
+        debug.error('Opening new brick: %s', os.path.basename(brick_info.brick))
 
     def close_brick(self):
         '''Close a brick and finalize it.
@@ -369,7 +326,7 @@ class BlockStorageDirectory:
         '''
         self.save()
         if self.brick_file:
-            debug(2, 'Finalizing brick')
+            debug.warning('Finalizing brick')
             self.brick_file.close()
         if self.toc_file:
             self.toc_file.close()
@@ -400,8 +357,8 @@ class BlockStorageDirectory:
         header, payload = self.encode_block(block, hashkey, hmac_digest)
 
         if hashkey in self.blocks_map:
-            debug(
-                1, 'Duplicate block found: %s' % short_hashkey_to_hex(hashkey))
+            debug.error(
+                'Duplicate block found: %s' % short_hashkey_to_hex(hashkey))
             return
 
         if not self.have_active_brick() or (
@@ -411,15 +368,15 @@ class BlockStorageDirectory:
         self.blocks_map[hashkey] = '%d,%d' % (
             self.current_brick, self.brick_size)
 
-        debug(1, 'Storing block {0} to {1} at {2}'.format(
+        debug.warning('Storing block {0} to {1} at {2}'.format(
             short_hashkey_to_hex(hashkey), self.current_brick,
             self.brick_file.tell()))
 
         self.toc_file.write(hashkey + struct.pack('!L', self.brick_size))
         self.brick_file.write(header)
-        debug(4, 'Header: %s' % repr(header))
+        debug.info('Header: %s' % repr(header))
         self.brick_file.write(payload)
-        debug(4, 'Payload: %s' % repr(payload[:32]))
+        debug.info('Payload: %s' % repr(payload[:32]))
         self.brick_size += len(header) + len(payload)
 
     def retrieve_block(self, hashkey):
@@ -435,11 +392,11 @@ class BlockStorageDirectory:
         brick_info = self.get_brick_file(brick_id)
 
         with open(brick_info.brick, 'rb') as fp:
-            debug(1, 'Retrieving block {0} from {1} offset {2}'.format(
+            debug.warning('Retrieving block {0} from {1} offset {2}'.format(
                 short_hashkey_to_hex(hashkey), brick_id, offset))
             fp.seek(offset)
             header = fp.read(4 + 4 + 4 + 68 + 64 + 16)
-            debug(4, 'Header: %s' % repr(header))
+            debug.info('Header: %s' % repr(header))
 
             header_magic = header[:4]
             header_payload_length = struct.unpack('!L', header[4:8])[0]
@@ -454,7 +411,7 @@ class BlockStorageDirectory:
                 raise ValueError('Hash key in block does not match expected.')
 
             payload = fp.read(header_payload_length)
-            debug(4, 'Payload: %s' % repr(payload[:32]))
+            debug.info('Payload: %s' % repr(payload[:32]))
             payload = decode_payload(
                 payload, self.aes_key,
                 header_crypto_iv, header_hmac, header_magic,
@@ -497,8 +454,8 @@ class EncryptIndexClass:
 
         :returns: str -- Tarzan index header
         '''
-        debug(
-            2, 'Formatting index header: uuid: "%s", base_iv: "%s"'
+        debug.warning(
+            'Formatting index header: uuid: "%s", base_iv: "%s"'
             % (self.blockstore.uuid, repr(self.sequential_iv.base_iv)))
 
         return bytes(
@@ -523,8 +480,8 @@ class EncryptIndexClass:
         '''
         magic = 'dtbz' if compressed else 'dtb1'
 
-        debug(
-            2, 'Format payload header: magic: "%s", length: %d, '
+        debug.warning(
+            'Format payload header: magic: "%s", length: %d, '
             'crypto_iv: "%s" block_hmac: "%s"'
             % (magic, length, repr(crypto_iv), repr(block_hmac)))
 
@@ -544,7 +501,7 @@ class EncryptIndexClass:
 
         :returns: str -- The block header.
         '''
-        debug(3, 'EncryptIndexClass.flush()')
+        debug.info('EncryptIndexClass.flush()')
 
         is_last_block = False if len(self.block) >= 16 else True
         if is_last_block:
@@ -590,7 +547,7 @@ class EncryptIndexClass:
         output.  If the output buffer is larger than `split_size`, the buffer
         is flushed.
         '''
-        debug(4, 'EncryptIndexClass.beginning_of_file()')
+        debug.info('EncryptIndexClass.beginning_of_file()')
 
         if len(self.block) >= self.split_size:
             self.flush()
@@ -607,7 +564,7 @@ class EncryptIndexClass:
 
         :returns: str -- The block header.
         '''
-        debug(4, 'EncryptIndexClass.write(length=%d)' % len(data))
+        debug.info('EncryptIndexClass.write(length=%d)' % len(data))
 
         self.bytes_written += len(data)
         if len(self.block) >= 2 * self.split_size:
@@ -620,7 +577,7 @@ class EncryptIndexClass:
         All buffered data is written, and a closing block is written.  This
         object is no longer usable after this.
         '''
-        debug(4, 'EncryptIndexClass.close()')
+        debug.info('EncryptIndexClass.close()')
 
         trailing_padding = 10240 - (self.bytes_written % 10240)
         if trailing_padding == 0:
@@ -669,8 +626,8 @@ class DecryptIndexClass:
         :type length: int
         :returns: str -- Data that was read.
         '''
-        debug(
-            4, 'DecryptIndexClass.read(length=%d), existing buffer: %d'
+        debug.info(
+            'DecryptIndexClass.read(length=%d), existing buffer: %d'
             % (length, len(self.buffer)))
 
         while length > len(self.buffer) and not self.eof:
@@ -691,8 +648,8 @@ class DecryptIndexClass:
         self.uuid = data[4:40]
         self.base_iv = data[40:56]
 
-        debug(
-            2, 'tarzan header: magic: "%s", uuid: "%s", base_iv: "%s"'
+        debug.warning(
+            'tarzan header: magic: "%s", uuid: "%s", base_iv: "%s"'
             % (data[:4], self.uuid, repr(self.base_iv)))
 
     def read_next_payload(self):
@@ -701,14 +658,14 @@ class DecryptIndexClass:
         See :py:func:`EncryptIndexClass::format_payload_header` for the
         layout of the header.'''
 
-        debug(4, 'DecryptIndexClass.read_next_payload()')
+        debug.info('DecryptIndexClass.read_next_payload()')
 
         data = self.fp.read(4 + 16 + 64 + 4 + 4)
         if not data:
             raise EOFError()
 
         magic = data[:4]
-        debug(3, 'Payload magic: %s' % repr(magic))
+        debug.warning('Payload magic: %s' % repr(magic))
 
         if magic not in ['dtbz', 'dtb1']:
             raise ValueError('Invalid payload, did not find magic number')
@@ -717,8 +674,8 @@ class DecryptIndexClass:
         payload_length = struct.unpack('!L', data[84:88])[0]
         decoded_length = struct.unpack('!L', data[88:92])[0]
 
-        debug(
-            2, 'Read header: crypto_iv: "%s", block_hmac: "%s", '
+        debug.warning(
+            'Read header: crypto_iv: "%s", block_hmac: "%s", '
             'payload_length: %d'
             % (repr(crypto_iv), repr(block_hmac), payload_length))
 
@@ -749,7 +706,7 @@ def decode_payload(
 
     mac512 = HMAC.new(aes_key, digestmod=SHA512)
     mac512.update(payload)
-    debug(3, 'MAC data length: %d' % len(payload))
+    debug.warning('MAC data length: %d' % len(payload))
     resulting_hmac = mac512.digest()
 
     if resulting_hmac != block_hmac:
@@ -782,7 +739,7 @@ def filter_tar_file_body(
         mac512 = HMAC.new(block_storage.aes_key, digestmod=SHA512)
         mac512.update(data)
         file_hash.update(data)
-        debug(3, 'MAC data length: %d' % len(data))
+        debug.warning('MAC data length: %d' % len(data))
         hmac_digest = mac512.digest()
 
         hashkey = block_storage.gen_hashkey(data, hmac_digest)
@@ -930,17 +887,17 @@ def filter_tar(
     output_file = EncryptIndexClass(output_file, block_storage)
 
     while True:
-        debug(3, 'filter_tar loop')
+        debug.info('filter_tar loop')
 
         try:
             tar_header = tarfp.TarInfo().fromfileobj(input_file)
         except tarfp.EOFHeaderError:
-            debug(1, 'Got tar EOF')
+            debug.warning('Got tar EOF')
             break
 
-        if config_helpers.is_verbose_level(1):
+        if verbose.isEnabledFor(logging.INFO):
             filetype = tar_header_to_filetype(tar_header)
-            verbose('%s %-10s %s' % (
+            verbose.info('%s %-10s %s' % (
                 filetype, tar_header.size, tar_header.path))
 
         output_file.beginning_of_file()
@@ -999,17 +956,17 @@ def filter_tarzan(
     input_file = DecryptIndexClass(input_file, block_storage)
 
     while True:
-        debug(3, 'filter_tarzan loop')
+        debug.info('filter_tarzan loop')
 
         try:
             tar_header = tarfp.TarInfo().fromfileobj(input_file)
         except tarfp.EOFHeaderError:
-            debug(1, 'Got tar EOF')
+            debug.warning('Got tar EOF')
             break
 
-        if config_helpers.is_verbose_level(1):
+        if verbose.isEnabledFor(logging.INFO):
             filetype = tar_header_to_filetype(tar_header)
-            verbose('%s %-10s %s' % (
+            verbose.info('%s %-10s %s' % (
                 filetype, tar_header.size, tar_header.path))
 
         if tar_header.size == 0:
@@ -1155,7 +1112,7 @@ def parse_args():
     '''
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-d', '--blockstore-directory',
+        '-d', '--blockstore-directory', required=True,
         help='The directory to place the blockstore data in.')
     parser.add_argument(
         '-v', '--verbose', action='count',
@@ -1232,12 +1189,50 @@ def parse_args():
 
     args = parser.parse_args()
 
-    if args.verbose:
-        config_helpers.verbose_level = args.verbose
-    if args.debug:
-        config_helpers.debug_level = args.debug
+    setup_logging(args.verbose, args.debug)
 
     return args
+
+
+def setup_logging(verbose_level, debug_level):
+    global log, debug, verbose
+
+    log = logging.getLogger('tarzan')
+    if verbose_level == 1:
+        log.setLevel(logging.ERROR)
+    elif verbose_level == 2:
+        log.setLevel(logging.WARNING)
+    elif verbose_level >= 3:
+        log.setLevel(logging.INFO)
+    else:
+        log.setLevel(logging.CRITICAL)
+
+    verbose_console = logging.StreamHandler()
+    formatter = logging.Formatter('%(message)s')
+    verbose_console.setFormatter(formatter)
+    log.addHandler(verbose_console)
+
+    root_handler = logging.NullHandler()
+    formatter = logging.Formatter(
+        '%(name)s - %(levelname)s - %(message)s')
+    root_handler.setFormatter(formatter)
+    log.addHandler(root_handler)
+
+    debug = logging.getLogger('tarzan.debug')
+    if debug_level == 1:
+        debug.setLevel(logging.ERROR)
+    elif debug_level == 2:
+        debug.setLevel(logging.WARNING)
+    elif debug_level >= 3:
+        debug.setLevel(logging.INFO)
+    else:
+        debug.setLevel(logging.CRITICAL)
+
+    verbose = logging.getLogger('tarzan.verbose')
+    if verbose_level:
+        verbose.setLevel(logging.INFO)
+    else:
+        verbose.setLevel(logging.CRITICAL)
 
 
 def get_password(args):
