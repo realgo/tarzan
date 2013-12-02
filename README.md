@@ -103,6 +103,23 @@ the local copies of any `dt_d-*` files.  You can also configure S3 via the
 management console to automatically migrate those files and possibly also the
 `dt_t-*` files to Glacier to reduce storage costs.
 
+Alternatives
+------------
+
+It bears a resemblance, it was mentioned by an early reviewer, to the
+[tarsnap backup system](http://www.tarsnap.com/), without the proprietary
+closed-source server component, and enabling backup storage for a thirtieth
+the cost.
+
+It also resembles [version 2 (currently in beta) of the Duplicati backup
+system](http://www.duplicati.com/).  Duplicati is more polished, including
+integrated upload to S3.  However, in my testing of the pre-release of
+version 2, the backups were extremely slow (an hour to backup 1GB to
+local storage), and the recovery errored out.  I found Duplicati while I
+was in the early implementation stages of tarzan.  I had already decided on
+the "tar filter with detached blocks" architecture, but do feel that
+Duplicati did lend some ideas and validation to the design.
+
 Contact Information
 -------------------
 
