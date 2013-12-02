@@ -16,9 +16,6 @@ import tarzan
 
 
 class test_TarzanBasic(unittest.TestCase):
-    def setUp(self):
-        tarzan.setup_logging(0, 0)
-
     def test_MakeSeqFilename(self):
         for file_id, results in [
                 (0, ('0', '0')),

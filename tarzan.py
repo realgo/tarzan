@@ -29,9 +29,12 @@ default_blocks_size = 30000
 default_brick_size_max = 30 * 1000 * 1000
 
 #  loggers
-debug = None
-log = None
-verbose = None
+debug = logging.getLogger(__name__ + '.debug')
+debug.addHandler(logging.NullHandler())
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
+verbose = logging.getLogger(__name__ + '.verbose')
+verbose.addHandler(logging.NullHandler())
 
 
 class InvalidTarzanInputError(Exception):
@@ -1196,9 +1199,10 @@ def parse_args():
 
 
 def setup_logging(verbose_level, debug_level):
-    global log, debug, verbose
-
-    log = logging.getLogger(__name__)
+    '''
+    Configure the logging settings, particularly based on verbosity settings
+    from the command-line argument processing.
+    '''
     if verbose_level == 1:
         log.setLevel(logging.ERROR)
     elif verbose_level == 2:
@@ -1213,13 +1217,6 @@ def setup_logging(verbose_level, debug_level):
     verbose_console.setFormatter(formatter)
     log.addHandler(verbose_console)
 
-    root_handler = logging.NullHandler()
-    formatter = logging.Formatter(
-        '%(name)s - %(levelname)s - %(message)s')
-    root_handler.setFormatter(formatter)
-    log.addHandler(root_handler)
-
-    debug = logging.getLogger(__name__ + '.debug')
     if debug_level == 1:
         debug.setLevel(logging.ERROR)
     elif debug_level == 2:
@@ -1229,7 +1226,6 @@ def setup_logging(verbose_level, debug_level):
     else:
         debug.setLevel(logging.CRITICAL)
 
-    verbose = logging.getLogger(__name__ + '.verbose')
     if verbose_level:
         verbose.setLevel(logging.INFO)
     else:
