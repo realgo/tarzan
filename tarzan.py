@@ -1198,7 +1198,7 @@ def parse_args():
 def setup_logging(verbose_level, debug_level):
     global log, debug, verbose
 
-    log = logging.getLogger('tarzan')
+    log = logging.getLogger(__name__)
     if verbose_level == 1:
         log.setLevel(logging.ERROR)
     elif verbose_level == 2:
@@ -1219,7 +1219,7 @@ def setup_logging(verbose_level, debug_level):
     root_handler.setFormatter(formatter)
     log.addHandler(root_handler)
 
-    debug = logging.getLogger('tarzan.debug')
+    debug = logging.getLogger(__name__ + '.debug')
     if debug_level == 1:
         debug.setLevel(logging.ERROR)
     elif debug_level == 2:
@@ -1229,7 +1229,7 @@ def setup_logging(verbose_level, debug_level):
     else:
         debug.setLevel(logging.CRITICAL)
 
-    verbose = logging.getLogger('tarzan.verbose')
+    verbose = logging.getLogger(__name__ + '.verbose')
     if verbose_level:
         verbose.setLevel(logging.INFO)
     else:
