@@ -20,7 +20,7 @@ Features
 
    * Allows for full and future backups by only uploading changed data.
 
-   * Writes data `bricks` in an Amazon Glacier-compatible format.
+   * Writes data "bricks" in an Amazon Glacier-compatible format.
 
 Requirements
 ------------
@@ -50,36 +50,36 @@ Getting Started
 
 Basic usage information is available by running `tarzan --help`.
 
-You need a `block storage` directory, which is the location that the file
+You need a "block storage" directory, which is the location that the file
 data is written to.  These files need to be uploaded to the storage server
-(Amazon Glacier or S3, storage server) for `deep freezing`.  There is also
-a `blocks_map` and `info` files that need to remain on the backup client
+(Amazon Glacier or S3, storage server) for "deep freezing".  There is also
+a "blocks\_map" and "info" files that need to remain on the backup client
 machine, which identifies the block-store and the already uploaded blocks.
 
 You use `tar` to backup the files, and send that output into `tarzan` for
 storage.  For example, to backup the current directory into a local
-`blocks` block storage:
+"blocks" block storage directory:
 
     tar c --exclude=./blocks . | \
     tarzan -d blocks -P MY_PASSWORD create --out=backup1.tarzan
 
-This creates a `blocks` directory which stores the file data, and a
-`backup1.tarzan` file which is the backup meta-data (files, permissions,
+This creates a "blocks" directory which stores the file data, and a
+"backup1.tarzan" file which is the backup meta-data (files, permissions,
 and links to the payload).  All of this is encrypted and protected against
 tampering.
 
-Now, to restore the data you need to can use the `extract` command, like
+Now, to restore the data you need to can use the `extract` sub-command, like
 this:
 
     mkdir recovery
     tarzan -d blocks -P MY_PASSWORD extract --in=backup1.tarzan | \
     tar x -C recovery
 
-The recovered data is stored in the `recovery` sub-directory.
+The recovered data is stored in the "recovery" sub-directory.
 
-The index file (`backup1.tarzan` in the above example) and any of the files
-starting with `dt_d` (data blocks) are required for recovery.  All other
-files (those starting with `dt_t`, `blocks_map`, and `index`) are all
+The index file ("backup1.tarzan" in the above example) and any of the files
+starting with "dt\_d" (data blocks) are required for recovery.  All other
+files (those starting with "dt\_t", "blocks\_map", and "index") are all
 just duplicate data, for optimization purposes.
 
 To copy these up to Amazon, currently, is an external step using the
@@ -88,20 +88,20 @@ To copy these up to Amazon, currently, is an external step using the
     s3cmd sync --exclude 'blocks_map' blocks s3://my-backups/blocks
     s3cmd sync backup1.tarzan s3://my-backups/
 
-This requires creating an S3 bucket, above named `my-backups`, and then
+This requires creating an S3 bucket, above named "my-backups", and then
 configuring s3cmd with your credentials using:
 
     s3cmd --configure
 
 Alternately, you could use the s3fs project to mount up an S3 bucket as a
 file-system and specify that with the "-d" argument.  I haven't tested
-this, but you'd probably want to use a symlink to place the `blocks_map`
+this, but you'd probably want to use a symlink to place the "blocks\_map"
 file on the local file-system.
 
 Once you are sure all the data has been uploaded to S3, you no longer need
-the local copies of any `dt_d-*` files.  You can also configure S3 via the
+the local copies of any "dt\_d-\*" files.  You can also configure S3 via the
 management console to automatically migrate those files and possibly also the
-`dt_t-*` files to Glacier to reduce storage costs.
+"dt\_t-\*" files to Glacier to reduce storage costs.
 
 Alternatives
 ------------
