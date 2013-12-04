@@ -22,6 +22,7 @@ import argparse
 import ConfigParser
 import collections
 import logging
+import logging.handlers
 
 import tarfp
 
@@ -1124,6 +1125,9 @@ def parse_args():
     parser.add_argument(
         '--debug', action='count',
         help='Display information useful for debugging tarzan.')
+    parser.add_argument(
+        '--syslog', action='store_true',
+        help='Write log information to syslog.')
 
     parser.add_argument(
         '-c', '--config-file', default='~/.tarzanrc',
@@ -1193,12 +1197,12 @@ def parse_args():
 
     args = parser.parse_args()
 
-    setup_logging(args.verbose, args.debug)
+    setup_logging(args.verbose, args.debug, args.syslog)
 
     return args
 
 
-def setup_logging(verbose_level, debug_level):
+def setup_logging(verbose_level, debug_level, syslog=False):
     '''
     Configure the logging settings, particularly based on verbosity settings
     from the command-line argument processing.
@@ -1212,10 +1216,13 @@ def setup_logging(verbose_level, debug_level):
     else:
         log.setLevel(logging.CRITICAL)
 
-    verbose_console = logging.StreamHandler()
-    formatter = logging.Formatter('%(message)s')
-    verbose_console.setFormatter(formatter)
-    log.addHandler(verbose_console)
+    if syslog:
+        log.addHandler(logging.handlers.SysLogHandler(address='/dev/log'))
+    else:
+        verbose_console = logging.StreamHandler()
+        formatter = logging.Formatter('%(message)s')
+        verbose_console.setFormatter(formatter)
+        log.addHandler(verbose_console)
 
     if debug_level == 1:
         debug.setLevel(logging.ERROR)
