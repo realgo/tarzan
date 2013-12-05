@@ -1,3 +1,4 @@
 STILL AN ISSUE? Fix last block of index, something isn't quite right.
 Documentation update.
-Verify the usage of the PAX headers?
+Test a sparse file, possibly with gnutar
+   http://www.gnu.org/software/tar/manual/html_node/PAX-1.html
