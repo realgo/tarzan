@@ -25,7 +25,9 @@ Features
 Requirements
 ------------
 
-   * python and python-crypto packages.
+   * Python 2.7, largely for a pycrypto that supports AES and PBKDF.
+
+   * python and python-crypto packages on Debian/Ubuntu.
 
    * tar
 
