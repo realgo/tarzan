@@ -33,6 +33,12 @@ Requirements
 
    * s3cmd package and Amazon S3 or Glacier account for remote storage.
 
+   * For Python 2.6 and earlier, you have to download "pycrypto" and
+     "argparse" from the Python package index, and put them into the tarzan
+     program directory.  You then need to comment out the "NullHandler"
+     lines from tarzan.py, and in the tarzan file do `sys.insert(0,
+     '/path/to/tarzan')` after the `import sys` line.
+
 Status
 ------
 
