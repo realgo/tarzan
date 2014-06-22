@@ -4,7 +4,7 @@
 
 __author__ = 'Sean Reifschneider <sean+opensource@realgo.com>'
 __version__ = 'X.XX'
-__copyright__ = 'Copyright (C) 2013 Sean Reifschneider, RealGo, Inc.'
+__copyright__ = 'Copyright (C) 2013, 2014 Sean Reifschneider, RealGo, Inc.'
 __license__ = 'GPLv2'
 
 import os
@@ -1240,9 +1240,9 @@ def setup_logging(verbose_level, debug_level, syslog=False):
 
 
 def get_password(args):
-    '''Select a password based in arguments.
+    '''Select a password based on command-line arguments.
 
-    :param args: Parsed arguments to process.
+    :param args: Parsed arguments from comand-line.
     :type args: :py:class:`argparse.Namespace`
 
     :returns: str or None -- The password from arguments, if any.
