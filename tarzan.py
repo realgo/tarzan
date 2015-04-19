@@ -4,15 +4,19 @@
 
 __author__ = 'Sean Reifschneider <sean+opensource@realgo.com>'
 __version__ = 'X.XX'
-__copyright__ = 'Copyright (C) 2013, 2014 Sean Reifschneider, RealGo, Inc.'
+__copyright__ = (
+    'Copyright (C) 2013, 2014, 2015 Sean Reifschneider, RealGo, Inc.')
 __license__ = 'GPLv2'
 
 import os
 import sys
+from Crypto import __version__ as Crypto_version
 from Crypto import Random
 from Crypto.Hash import SHA512, HMAC
 from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
 import struct
 import zlib
 import json
@@ -23,9 +27,22 @@ import ConfigParser
 import collections
 import logging
 import logging.handlers
+try:
+    from distutils.version import LooseVersion
+except ImportError:
+    print (
+        'WARNING: Unable to check Crypto library version.  '
+        'Install distutils.')
+else:
+    if LooseVersion(Crypto_version) < LooseVersion('2.6.1'):
+        print (
+            'WARNING: Python Crypto should be 2.6.1 or higher.'
+            '  CVE-2013-1445')
 
 import tarfp
 
+rsa_key_length = 3072
+aes_key_length = 16      # RSA of 3072 matches AES of 128
 default_blocks_size = 30000
 default_brick_size_max = 30 * 1000 * 1000
 
@@ -43,6 +60,13 @@ class InvalidTarzanInputError(Exception):
     '''
     pass
 
+
+#  for python3 compatibility, even though tarzan isn't
+if hasattr(__builtins__, 'FileExistsError'):
+    FileExistsError = __builtins__.FileExistsError
+else:
+    class FileExistsError(IOError):
+        pass
 
 def hashkey_to_hex(s):
     len_length = struct.calcsize('!L')
@@ -110,6 +134,326 @@ class SequentialIV:
 
 class BlockStorageDirectory:
     '''A block storage class that writes blocks to a directory.
+
+    NOTE: This is not multi-process or multi-thread safe currently.
+    '''
+    def __init__(
+            self, path, password,
+            blocks_size=default_blocks_size,
+            brick_size_max=default_brick_size_max):
+        '''Create a block storage instance.
+
+        :param path: Directory of block storage.
+        :type path: str
+        :param password: Encryption key.
+        :type password: str
+        :param blocks_size: Size of blocks in the storage.  Partial blocks
+                may be smaller.  Defaults to `default_blocks_size.
+        :type blocks_size: int
+        :param brick_size_max: Size of the block storage files
+                ("bricks").  The bricks will be split when they exceed this
+                size.  Defaults to `default_brick_size_max`.
+        :type brick_size_max: int
+        '''
+        self.path = path
+        self.aes_key = PBKDF2(password, '', 32)
+        self.blocks_map = None
+        self.blocks_size = blocks_size
+        self.brick_size_max = brick_size_max
+
+        self._reset_brick()
+
+        if not os.path.exists(path):
+            os.mkdir(path)
+            self.next_brick = 0
+            self.uuid = str(uuid.uuid1())
+            if len(self.uuid) != 36:
+                raise ValueError(
+                    'Expected 36 bytes of UUID, got %d' % len(self.uuid))
+
+            self.save()
+        else:
+            self.load()
+
+        self._open_blocks_map()
+
+    def _reset_brick(self):
+        '''Internal: Resets objects related to the blocks file.
+        '''
+        self.brick_file = None
+        self.toc_file = None
+        self.brick_size = None
+
+    def save(self):
+        '''Save the block storage status.
+        This should be called regularly when the status of the block
+        storage changes (new bricks created).
+        '''
+        filename = os.path.join(self.path, 'info')
+        tmp_filename = filename + '.tmp'
+        with open(tmp_filename, 'w') as fp:
+            json.dump(
+                {
+                    'format_version': 1,
+                    'next_brick': self.next_brick,
+                    'uuid': self.uuid,
+                }, fp)
+        os.rename(tmp_filename, filename)
+
+        if self.brick_file:
+            self.brick_file.flush()
+        if self.toc_file:
+            self.toc_file.flush()
+        if self.blocks_map:
+            self.blocks_map.sync()
+
+    def load(self):
+        '''Load block storage information from disc.
+        This loads the status from the block storage files and makes it
+        ready for use.
+        '''
+        filename = os.path.join(self.path, 'info')
+        with open(filename, 'r') as fp:
+            data = json.load(fp)
+            if data['format_version'] != 1:
+                raise ValueError(
+                    'Unsupported format "%s"' % data['format_version'])
+            self.format_version = data['format_version']
+            self.uuid = data['uuid']
+            self.next_brick = data['next_brick']
+        self._open_blocks_map()
+
+    def _open_blocks_map(self):
+        '''INTERNAL: Open the blocks map file.'''
+        if self.blocks_map is None:
+            filename = os.path.join(self.path, 'blocks_map')
+            self.blocks_map = bsddb.hashopen(filename, 'c')
+
+    def have_active_brick(self):
+        '''Do we have an active brick?
+
+        :returns: boolean -- Returns `True` if there is a brick open for
+                writing.
+        '''
+        return self.brick_file is not None
+
+    def gen_hashkey(self, block, hmac_digest):
+        '''Generate the hashkey for the specified block.
+        A hashkey is the unique identifier for a block.  It consists of the
+        64-byte binary SHA512 of the block data, followed by 4 bytes
+        representing the block size, encoded in network format.
+
+        :param block: The block to hash.
+        :type block: str
+        :param hmac_digest: HMAC digest to mix into hash.
+        :type hmac_digest: str
+        :returns: str -- The hashkey associated with this block data.
+        '''
+        hash = SHA512.new()
+        hash.update(block)
+        hash.update(hmac_digest)
+
+        return hash.digest() + struct.pack('!L', len(block))
+
+    hashkey_length = 64 + struct.calcsize('!L')
+
+    def get_brick_file(self, sequence_id):
+        '''Format the paths of brick components.
+
+        Given a sequene, this returns a namedtuple that identifies the brick
+        with these attributes (in tuple order):
+
+            - directory -- The location of the directory the brick is in.
+            - brick -- Full path of the brick file.
+            - toc -- Full path of the TOC file.
+
+        :param sequence_id: The numeric sequence identifier of the brick.
+        :type sequence_id: int
+        :returns: :py:class:`BrickFileInfo` -- Namedtuple of brick paths.
+        '''
+        brick_info = os.path.split(make_seq_filename(sequence_id))
+
+        brick_directory = os.path.join(self.path, 'b-' + brick_info[0])
+        if not os.path.exists(brick_directory):
+            os.mkdir(brick_directory)
+        brick_filename = os.path.join(
+            brick_directory, 'dt_d-%s-%s' % brick_info)
+        toc_filename = os.path.join(
+            brick_directory, 'dt_t-%s-%s' % brick_info)
+
+        return BrickFileInfo(brick_directory, brick_filename, toc_filename)
+
+    def encode_block(self, block, hashkey, hmac):
+        '''Given a block, encode it in the block-file format.
+
+        This takes a block, potentially compresses it, encrypts it, and
+        creates a block header for storage in the brick.
+
+        Header format:
+            block magic number ("dt1z" for compressed+AWS or "dt1n" for
+                    just AES)
+            payload length (4 bytes encoded network-format)
+            decoded length (4 bytes encoded network-format)
+            hashkey (64 bytes SHA512 hash of block and HMAC,
+                    4 bytes raw length)
+            hmac (64 bytes SHA512 data signature)
+            crypto IV: 16 random bytes
+        Payload format:
+            block: Encrypted and possibly encoded
+
+        :param block: The block of data.
+        :type block: str
+        :param hashkey: The hashkey of the data block.
+        :type hashkey: str
+        :returns: (str,str) -- A tuple of the block header and payload data.
+        '''
+        decoded_length = len(block)
+        block_magic = 'dt1n'
+        compressed_block = zlib.compress(block)
+        if len(compressed_block) < len(block):
+            block = compressed_block
+            block_magic = 'dt1z'
+
+        crypto_iv = Random.new().read(16)
+        crypto = AES.new(self.aes_key, AES.MODE_CBC, crypto_iv)
+
+        padding_remainder = len(block) % 16
+        if padding_remainder != 0:
+            block += Random.new().read(16 - padding_remainder)
+        block = crypto.encrypt(block)
+
+        header = (
+            block_magic + struct.pack('!L', len(block)) +
+            struct.pack('!L', decoded_length) + hashkey
+            + hmac + crypto_iv)
+        return header, block
+
+    def new_brick(self):
+        '''Get a new brick for writing to.
+
+        This closes the existing brick, if any, and opens a new one for
+        writing to.
+        '''
+        self.close_brick()
+
+        self.current_brick = self.next_brick
+        self.next_brick += 1
+        self.save()
+
+        brick_info = self.get_brick_file(self.current_brick)
+        self.brick_file = open(brick_info.brick, 'a')
+        self.toc_file = open(brick_info.toc, 'a')
+        self.brick_size = 0
+
+        debug.error(
+            'Opening new brick: %s', os.path.basename(brick_info.brick))
+
+    def close_brick(self):
+        '''Close a brick and finalize it.
+
+        Called when done with writing blocks to a brick.
+        '''
+        self.save()
+        if self.brick_file:
+            debug.warning('Finalizing brick')
+            self.brick_file.close()
+        if self.toc_file:
+            self.toc_file.close()
+        self._reset_brick()
+
+    def store_block(self, block, hashkey=None, hmac_digest=None):
+        '''Store the given block in the current brick.
+
+        If the block has already been stored to the BlockStorage, it is not
+        written again.
+
+        :param block: The data to store in the brick.
+        :type block: str
+        :param hashkey: (None) If specified, the hashkey for the block.
+                If not specified, the hashkey is generated internally.
+        :type hashkey: str
+        :param hmac_digest: (None) If specified, the hmac_digest for the block.
+                If not specified, the hashkey is generated internally.
+        :type hmac_digest: str
+        '''
+        if hmac_digest is None:
+            mac512 = HMAC.new(self.aes_key, digestmod=SHA512)
+            mac512.update(block)
+            hmac_digest = mac512.digest()
+
+        if hashkey is None:
+            hashkey = self.gen_hashkey(block, hmac_digest)
+        header, payload = self.encode_block(block, hashkey, hmac_digest)
+
+        if hashkey in self.blocks_map:
+            debug.error(
+                'Duplicate block found: %s', short_hashkey_to_hex(hashkey))
+            return
+
+        if not self.have_active_brick() or (
+                self.brick_size and self.brick_size > self.brick_size_max):
+            self.new_brick()
+
+        self.blocks_map[hashkey] = '%d,%d' % (
+            self.current_brick, self.brick_size)
+
+        debug.warning('Storing block {0} to {1} at {2}'.format(
+            short_hashkey_to_hex(hashkey), self.current_brick,
+            self.brick_file.tell()))
+
+        self.toc_file.write(hashkey + struct.pack('!L', self.brick_size))
+        self.brick_file.write(header)
+        debug.info('Header: %s', repr(header))
+        self.brick_file.write(payload)
+        debug.info('Payload: %s', repr(payload[:32]))
+        self.brick_size += len(header) + len(payload)
+
+    def retrieve_block(self, hashkey):
+        '''Grab a block from storage.
+
+        :param hashkey: (None) If specified, the hashkey for the block.
+        :type hashkey: str
+        :returns: str -- Block payload.
+        '''
+        location = self.blocks_map[hashkey]
+        brick_id, offset = map(int, location.split(','))
+
+        brick_info = self.get_brick_file(brick_id)
+
+        with open(brick_info.brick, 'rb') as fp:
+            debug.warning('Retrieving block {0} from {1} offset {2}'.format(
+                short_hashkey_to_hex(hashkey), brick_id, offset))
+            fp.seek(offset)
+            header = fp.read(4 + 4 + 4 + 68 + 64 + 16)
+            debug.info('Header: %s', repr(header))
+
+            header_magic = header[:4]
+            header_payload_length = struct.unpack('!L', header[4:8])[0]
+            header_decoded_length = struct.unpack('!L', header[8:12])[0]
+            header_hashkey = header[12:80]
+            header_hmac = header[80:144]
+            header_crypto_iv = header[144:]
+
+            if header_magic not in ['dt1z', 'dt1n']:
+                raise ValueError('Invalid hashkey in read block')
+            if hashkey != header_hashkey:
+                raise ValueError('Hash key in block does not match expected.')
+
+            payload = fp.read(header_payload_length)
+            debug.info('Payload: %s', repr(payload[:32]))
+            payload = decode_payload(
+                payload, self.aes_key,
+                header_crypto_iv, header_hmac, header_magic,
+                header_decoded_length)
+
+            return payload
+
+
+class BlockStorageDirectoryNoBrick:
+    '''A block storage class that writes blocks to a directory.
+    This version does not store files in bricks, it uses the block
+    hash to just write individual files.  This is largely for testing
+    of an S3 back-end.
 
     NOTE: This is not multi-process or multi-thread safe currently.
     '''
@@ -955,7 +1299,7 @@ def filter_tarzan(
             `blocks_size` bytes plus the lock header size.
     :type brick_size_max: int
     '''
-    block_storage = BlockStorageDirectory(
+    block_storage = BlockStorageDirectoryNoBrick(
         block_storage_path, password, blocks_size, brick_size_max)
 
     input_file = DecryptIndexClass(input_file, block_storage)
@@ -1297,3 +1641,30 @@ def error(msg):
     '''
     sys.stderr.write('%s: %s\n' % (os.path.basename(sys.argv[0]), msg))
     sys.exit(1)
+
+
+class TarzanPublicKey:
+    def __init__(self, filename=None):
+        if filename is None:
+            self._generate_new_key()
+        self.cipher = PKCS1_OAEP.new(self.key)
+
+    def _generate_new_key(self):
+        self.key = RSA.generate(rsa_key_length, Random.new().read)
+
+    def write_key(self, private_filename, public_filename=None):
+        if not public_filename:
+            public_filename = private_filename + '.pub'
+
+        if os.path.exists(private_filename):
+            raise FileExistsError(
+                'Private key file "%s" exists' % private_filename)
+        if os.path.exists(public_filename):
+            raise FileExistsError(
+                'Public key file "%s" exists' % public_filename)
+
+        with open(private_filename, 'w') as fp:
+            fp.write(self.key.exportKey())
+
+        with open(public_filename, 'w') as fp:
+            fp.write(self.key.publickey().exportKey())

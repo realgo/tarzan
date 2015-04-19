@@ -1,0 +1,34 @@
+#!/usr/bin/env python
+#
+#  Author: Sean Reifschneider <sean+opensource@realgo.com>
+#  Date: Sun Apr 19, 2013
+
+import sys
+import os
+import tarzan
+
+if len(sys.argv) > 3:
+    print(
+        'usage: %s [<public key file> [<private key file>]]'
+        % os.path.basename(sys.argv[0]))
+    sys.exit(1)
+
+if len(sys.argv) > 1:
+    private_key_file = sys.argv[1]
+else:
+    private_key_file = os.path.expanduser('~/.tarzan-key')
+if len(sys.argv) > 2:
+    public_key_file = sys.argv[2]
+else:
+    public_key_file = private_key_file + '.pub'
+
+if os.path.exists(private_key_file):
+    print('ERROR: Private key file exists: "%s"' % private_key_file)
+    sys.exit(2)
+if os.path.exists(public_key_file):
+    print('ERROR: Public key file exists: "%s"' % public_key_file)
+    sys.exit(3)
+
+key = tarzan.TarzanPublicKey()
+key.write_key(private_key_file, public_key_file)
+print('Wrote key to "%s"' % private_key_file)
