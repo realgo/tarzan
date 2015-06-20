@@ -20,25 +20,38 @@ def open_args(args):
     return in_fp, out_fp
 
 
-def do_create(args, password):
+def do_genkey(args, config):
+    if args.keyfile is None:
+        sys.stderr.write(
+            'ERROR: No keyfile specified in config file or on command-line.\n')
+        sys.exit(1)
+    key = tarzan.TarzanPublicKey(args.keyfile)
+    key.generate_new_key()
+    key.write_key()
+
+    key = tarzan.TarzanPublicKey(args.keyfile)
+    key.read_key()
+
+
+def do_create(args, config):
     in_fp, out_fp = open_args(args)
     tarzan.filter_tar(
         in_fp, out_fp, args.blockstore_directory, password)
 
 
-def do_decrypt(args, password):
+def do_decrypt(args, config):
     in_fp, out_fp = open_args(args)
     tarzan.decrypt_tarzan(
         in_fp, out_fp, args.blockstore_directory, password)
 
 
-def do_list(args, password):
+def do_list(args, config):
     in_fp, out_fp = open_args(args)
     tarzan.list_tarzan(
         in_fp, out_fp, args.blockstore_directory, password)
 
 
-def do_extract(args, password):
+def do_extract(args, config):
     in_fp, out_fp = open_args(args)
     tarzan.filter_tarzan(
         in_fp, out_fp, args.blockstore_directory, password)
@@ -46,31 +59,20 @@ def do_extract(args, password):
 
 def main():
     args = tarzan.parse_args()
-    try:
-        config = tarzan.load_config_file(args.config_file)
-        password = tarzan.get_password(args)
+    config = tarzan.load_config_file(args.config_file)
+    if args.keyfile is None and 'keyfile' in config:
+        args.keyfile = config['keyfile']
 
-        if not password:
-            if 'password' in config:
-                password = config['password']
-            if 'keyfile' in config:
-                with open(config['keyfile'], 'r') as fp:
-                    password = fp.read()
-
-        if not password:
-            raise ValueError(
-                'No password specified in config file or command-line')
-    except ValueError as e:
-        tarzan.error(e.message)
-
+    if args.command == 'genkey':
+        do_genkey(args, config)
     if args.command == 'create':
-        do_create(args, password)
+        do_create(args, config)
     if args.command == 'decrypt':
-        do_decrypt(args, password)
+        do_decrypt(args, config)
     if args.command == 'list':
-        do_list(args, password)
+        do_list(args, config)
     if args.command == 'extract':
-        do_extract(args, password)
+        do_extract(args, config)
 
 if __name__ == '__main__':
     main()

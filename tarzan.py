@@ -68,6 +68,7 @@ else:
     class FileExistsError(IOError):
         pass
 
+
 def hashkey_to_hex(s):
     len_length = struct.calcsize('!L')
     return '{0}:{1}'.format(
@@ -1443,13 +1444,8 @@ def load_config_file(filename):
     config.read(filename)
 
     data = {}
-    if config.has_option('main', 'password'):
-        data['password'] = config.get('main', 'password')
     if config.has_option('main', 'keyfile'):
         data['keyfile'] = config.get('main', 'keyfile')
-
-    if data.get('keyfile') and data.get('password'):
-        raise ValueError('Config file specifies both password and keyfile')
 
     return data
 
@@ -1461,9 +1457,6 @@ def parse_args():
     '''
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-d', '--blockstore-directory', required=True,
-        help='The directory to place the blockstore data in.')
-    parser.add_argument(
         '-v', '--verbose', action='count',
         help='Display information about what actions are taken to stderr.')
     parser.add_argument(
@@ -1472,24 +1465,20 @@ def parse_args():
     parser.add_argument(
         '--syslog', action='store_true',
         help='Write log information to syslog.')
+    parser.add_argument(
+        '-k', '--keyfile',
+        help='Backup public/private key file')
 
     parser.add_argument(
         '-c', '--config-file', default='~/.tarzanrc',
         help='The configuration file to use')
 
-    group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument(
-        '-P', '--password',
-        help='Password specified on the command-line (may be seen by other '
-        'users or processes on the same system)')
-    group.add_argument(
-        '-p', '--password-file',
-        help='Read password from this file, stripping trailing whitespace')
-    group.add_argument(
-        '-k', '--key-file',
-        help='Read binary key from file')
-
     subparsers = parser.add_subparsers(help='Tarzan sub-commands')
+
+    command_parser = subparsers.add_parser(
+        'genkey',
+        help='Generate a public/private key-pair for backups')
+    command_parser.set_defaults(command='genkey')
 
     command_parser = subparsers.add_parser(
         'create',
@@ -1502,6 +1491,9 @@ def parse_args():
     command_parser.add_argument(
         '-o', '--out', dest='out_file',
         help='File to write tarzan output to (default=stdout)')
+    command_parser.add_argument(
+        '-d', '--blockstore-directory', required=True,
+        help='The directory to place the blockstore data in.')
 
     command_parser = subparsers.add_parser(
         'decrypt',
@@ -1538,6 +1530,9 @@ def parse_args():
     command_parser.add_argument(
         '-o', '--out', dest='out_file',
         help='File to write tarzan output to (default=stdout)')
+    command_parser.add_argument(
+        '-d', '--blockstore-directory', required=True,
+        help='The directory to place the blockstore data in.')
 
     args = parser.parse_args()
 
@@ -1644,27 +1639,35 @@ def error(msg):
 
 
 class TarzanPublicKey:
-    def __init__(self, filename=None):
-        if filename is None:
-            self._generate_new_key()
+    def __init__(self, private_filename, public_filename=None):
+        self.private_filename = private_filename
+        self.public_filename = public_filename
+        if not self.public_filename:
+            self.public_filename = private_filename + '.pub'
+
+    def generate_new_key(self):
+        self.key = RSA.generate(rsa_key_length, Random.new().read)
         self.cipher = PKCS1_OAEP.new(self.key)
 
-    def _generate_new_key(self):
-        self.key = RSA.generate(rsa_key_length, Random.new().read)
+    def read_key(self):
+        if os.path.exists(self.private_filename):
+            with open(self.private_filename) as fp:
+                self.key = RSA.importKey(fp.read())
+        else:
+            with open(self.public_filename) as fp:
+                self.key = RSA.importKey(fp.read())
+        self.cipher = PKCS1_OAEP.new(self.key)
 
-    def write_key(self, private_filename, public_filename=None):
-        if not public_filename:
-            public_filename = private_filename + '.pub'
-
-        if os.path.exists(private_filename):
+    def write_key(self):
+        if os.path.exists(self.private_filename):
             raise FileExistsError(
-                'Private key file "%s" exists' % private_filename)
-        if os.path.exists(public_filename):
+                'Private key file "%s" exists' % self.private_filename)
+        if os.path.exists(self.public_filename):
             raise FileExistsError(
-                'Public key file "%s" exists' % public_filename)
+                'Public key file "%s" exists' % self.public_filename)
 
-        with open(private_filename, 'w') as fp:
+        with open(self.private_filename, 'w') as fp:
             fp.write(self.key.exportKey())
 
-        with open(public_filename, 'w') as fp:
+        with open(self.public_filename, 'w') as fp:
             fp.write(self.key.publickey().exportKey())
