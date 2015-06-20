@@ -1466,7 +1466,7 @@ def parse_args():
         '--syslog', action='store_true',
         help='Write log information to syslog.')
     parser.add_argument(
-        '-k', '--keyfile',
+        '-k', '--keyfile', default='~/.tarzan-key',
         help='Backup public/private key file')
 
     parser.add_argument(
@@ -1639,17 +1639,38 @@ def error(msg):
 
 
 class TarzanPublicKey:
+    '''Public-key management functions.
+
+    This class manages the public/private keys for tarzan backups.
+    '''
+
     def __init__(self, private_filename, public_filename=None):
-        self.private_filename = private_filename
-        self.public_filename = public_filename
-        if not self.public_filename:
-            self.public_filename = private_filename + '.pub'
+        '''Creator.
+
+        :param private_filename: Name of private key file.
+        :type private_filename: str
+        :param public_filename: (Optional) Name of public key file.  If not
+                specified, the private key file name is used with ".pub"
+                appended.
+        :type public_filename: str
+        '''
+        self.private_filename = os.path.expanduser(private_filename)
+        if not public_filename:
+            public_filename = private_filename + '.pub'
+        self.public_filename = os.path.expanduser(public_filename)
 
     def generate_new_key(self):
+        '''Generate a new public/private key-pair
+        '''
         self.key = RSA.generate(rsa_key_length, Random.new().read)
         self.cipher = PKCS1_OAEP.new(self.key)
 
     def read_key(self):
+        '''Load keys from the key-files.
+
+        If the private key-file exists, load keys from it.  Otherwise, use
+        the public key file.
+        '''
         if os.path.exists(self.private_filename):
             with open(self.private_filename) as fp:
                 self.key = RSA.importKey(fp.read())
@@ -1659,6 +1680,10 @@ class TarzanPublicKey:
         self.cipher = PKCS1_OAEP.new(self.key)
 
     def write_key(self):
+        '''Write the public and private key files.
+
+        :raises: :py:exc:`FileExistsError`
+        '''
         if os.path.exists(self.private_filename):
             raise FileExistsError(
                 'Private key file "%s" exists' % self.private_filename)
